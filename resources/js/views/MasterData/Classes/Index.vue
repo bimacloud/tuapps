@@ -1,141 +1,190 @@
 <template>
   <admin-layout>
-    <div class="space-y-5 sm:space-y-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800 dark:text-white/90">Daftar Kelas</h2>
-        <button
-          v-if="isBendahara"
-          @click="openModal()"
-          class="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white transition bg-brand-500 rounded-lg hover:bg-brand-600"
+    <PageHeader
+      title="Kelas"
+      description="Rombongan belajar per tahun pelajaran. Siswa dicatat ke kelas, dan tagihan mengikuti kelasnya."
+    >
+      <template v-if="isBendahara" #actions>
+        <button type="button" class="btn btn-primary" :disabled="loading" @click="openModal()">Tambah kelas</button>
+      </template>
+    </PageHeader>
+
+    <section class="panel overflow-hidden">
+      <DataState v-if="loading" state="loading" message="Mengambil daftar kelas, jurusan, dan tahun pelajaran." />
+      <DataState v-else-if="loadError" state="error" :message="loadError">
+        <button type="button" class="btn btn-secondary" @click="fetchData">Coba lagi</button>
+      </DataState>
+      <DataState
+        v-else-if="items.length === 0 && missingPrerequisites.length"
+        state="empty"
+        title="Belum ada kelas."
+        :message="`Kelas membutuhkan ${missingPrerequisites.join(' dan ')}. Tambahkan dulu di menu masing-masing.`"
+      >
+        <router-link v-if="!majors.length" to="/master/majors" class="btn btn-secondary">Buka menu Jurusan</router-link>
+        <router-link v-if="!academicYears.length" to="/master/academic-years" class="btn btn-secondary">
+          Buka menu Tahun Pelajaran
+        </router-link>
+      </DataState>
+      <DataState
+        v-else-if="items.length === 0"
+        state="empty"
+        title="Belum ada kelas."
+        :message="isBendahara ? 'Tambahkan kelas supaya siswa bisa dicatat dan ditagih per kelas.' : 'Bendahara belum menambahkan kelas.'"
+      >
+        <button v-if="isBendahara" type="button" class="btn btn-primary" @click="openModal()">Tambah kelas</button>
+      </DataState>
+
+      <div v-else class="overflow-x-auto">
+        <table class="table-data">
+          <thead>
+            <tr>
+              <th scope="col">Nama kelas</th>
+              <th scope="col">Tingkat</th>
+              <th scope="col">Jurusan</th>
+              <th scope="col">Tahun pelajaran</th>
+              <th scope="col">Wali kelas</th>
+              <th scope="col">Status</th>
+              <th v-if="isBendahara" scope="col"><span class="sr-only">Aksi</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in items" :key="item.id">
+              <td class="font-display text-lg font-bold whitespace-nowrap">{{ item.name }}</td>
+              <td>{{ item.grade }}</td>
+              <td>{{ item.major?.name || '-' }}</td>
+              <td class="whitespace-nowrap">{{ item.academic_year?.name || '-' }}</td>
+              <td>{{ item.homeroom_teacher || '-' }}</td>
+              <td><StatusTag :status="Boolean(item.status)" /></td>
+              <td v-if="isBendahara" class="text-right">
+                <div class="flex justify-end gap-1">
+                  <button type="button" class="btn btn-ghost btn-sm" @click="openModal(item)">
+                    Ubah<span class="sr-only"> {{ item.name }}</span>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm !text-galat" @click="deleteItem(item)">
+                    Hapus<span class="sr-only"> {{ item.name }}</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <BaseModal :open="showModal" size="lg" :title="form.id ? 'Ubah kelas' : 'Tambah kelas'" @close="closeModal">
+      <form id="class-form" class="space-y-4" @submit.prevent="saveItem">
+        <p
+          v-if="formError"
+          class="rounded-[var(--radius-kontrol)] bg-galat-muda px-3 py-2 text-sm font-semibold text-galat"
+          role="alert"
         >
-          Tambah Kelas
+          {{ formError }}
+        </p>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label for="class-name" class="field-label">Nama kelas</label>
+            <input
+              id="class-name"
+              v-model="form.name"
+              type="text"
+              required
+              maxlength="255"
+              class="field-input"
+              placeholder="Tingkat, jurusan, dan nomor rombel"
+              :aria-invalid="fieldError('name') ? 'true' : 'false'"
+              :aria-describedby="fieldError('name') ? 'class-name-error' : 'class-name-hint'"
+            />
+            <p v-if="fieldError('name')" id="class-name-error" class="field-error">{{ fieldError('name') }}</p>
+            <p v-else id="class-name-hint" class="field-hint">Nama ini dipakai saat impor siswa, misalnya X TJKT 1.</p>
+          </div>
+          <div>
+            <label for="class-grade" class="field-label">Tingkat</label>
+            <input
+              id="class-grade"
+              v-model="form.grade"
+              type="text"
+              required
+              class="field-input"
+              maxlength="50"
+              placeholder="X, XI, atau XII"
+              :aria-invalid="fieldError('grade') ? 'true' : 'false'"
+              :aria-describedby="fieldError('grade') ? 'class-grade-error' : undefined"
+            />
+            <p v-if="fieldError('grade')" id="class-grade-error" class="field-error">{{ fieldError('grade') }}</p>
+          </div>
+
+          <div>
+            <label for="class-major" class="field-label">Jurusan</label>
+            <select
+              id="class-major"
+              v-model="form.major_id"
+              required
+              class="field-input"
+              :aria-invalid="fieldError('major_id') ? 'true' : 'false'"
+              :aria-describedby="fieldError('major_id') ? 'class-major-error' : undefined"
+            >
+              <option value="" disabled>Pilih jurusan</option>
+              <option v-for="major in majors" :key="major.id" :value="major.id">{{ major.name }}</option>
+            </select>
+            <p v-if="fieldError('major_id')" id="class-major-error" class="field-error">{{ fieldError('major_id') }}</p>
+            <p v-else-if="!majors.length" class="field-hint">
+              Belum ada jurusan. <router-link to="/master/majors" class="link">Tambah jurusan</router-link>
+            </p>
+          </div>
+          <div>
+            <label for="class-year" class="field-label">Tahun pelajaran</label>
+            <select
+              id="class-year"
+              v-model="form.academic_year_id"
+              required
+              class="field-input"
+              :aria-invalid="fieldError('academic_year_id') ? 'true' : 'false'"
+              :aria-describedby="fieldError('academic_year_id') ? 'class-year-error' : undefined"
+            >
+              <option value="" disabled>Pilih tahun pelajaran</option>
+              <option v-for="year in academicYears" :key="year.id" :value="year.id">
+                {{ year.name }}{{ year.is_active ? ' (aktif)' : '' }}
+              </option>
+            </select>
+            <p v-if="fieldError('academic_year_id')" id="class-year-error" class="field-error">
+              {{ fieldError('academic_year_id') }}
+            </p>
+            <p v-else-if="!academicYears.length" class="field-hint">
+              Belum ada tahun pelajaran.
+              <router-link to="/master/academic-years" class="link">Tambah tahun pelajaran</router-link>
+            </p>
+          </div>
+
+          <div class="sm:col-span-2">
+            <label for="class-teacher" class="field-label">Wali kelas <span class="font-normal text-tinta-2">(boleh dikosongkan)</span></label>
+            <input
+              id="class-teacher"
+              v-model="form.homeroom_teacher"
+              type="text"
+              class="field-input"
+              placeholder="Nama guru wali kelas"
+              :aria-invalid="fieldError('homeroom_teacher') ? 'true' : 'false'"
+              :aria-describedby="fieldError('homeroom_teacher') ? 'class-teacher-error' : undefined"
+            />
+            <p v-if="fieldError('homeroom_teacher')" id="class-teacher-error" class="field-error">
+              {{ fieldError('homeroom_teacher') }}
+            </p>
+          </div>
+        </div>
+
+        <label class="flex min-h-11 items-center gap-3">
+          <input v-model="form.status" type="checkbox" class="field-check" />
+          <span class="font-medium">Kelas aktif</span>
+        </label>
+      </form>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="closeModal">Batal</button>
+        <button type="submit" form="class-form" class="btn btn-primary" :disabled="saving">
+          {{ saving ? 'Menyimpan...' : 'Simpan kelas' }}
         </button>
-      </div>
-
-      <div class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div class="max-w-full overflow-x-auto">
-          <table class="min-w-full">
-            <thead>
-              <tr class="border-b border-gray-200 dark:border-gray-700">
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Nama Kelas</p>
-                </th>
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Tingkat</p>
-                </th>
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Jurusan</p>
-                </th>
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Wali Kelas</p>
-                </th>
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Tahun Ajaran</p>
-                </th>
-                <th v-if="isBendahara" class="px-5 py-3 text-right">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Aksi</p>
-                </th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-              <tr v-if="loading">
-                <td colspan="6" class="px-5 py-4 text-center">Loading...</td>
-              </tr>
-              <tr v-else-if="items.length === 0">
-                <td colspan="6" class="px-5 py-4 text-center">Tidak ada data.</td>
-              </tr>
-              <tr v-for="item in items" :key="item.id" class="border-t border-gray-100 dark:border-gray-800">
-                <td class="px-5 py-4">
-                  <span class="block font-medium text-gray-800 text-theme-sm dark:text-white/90">{{ item.name }}</span>
-                  <span class="block text-gray-400 text-xs mt-1">{{ item.status ? 'Aktif' : 'Nonaktif' }}</span>
-                </td>
-                <td class="px-5 py-4">
-                  <span class="block text-gray-500 text-theme-sm dark:text-gray-400">{{ item.grade }}</span>
-                </td>
-                <td class="px-5 py-4">
-                  <span class="block text-gray-500 text-theme-sm dark:text-gray-400">{{ item.major?.name }}</span>
-                </td>
-                <td class="px-5 py-4">
-                  <span class="block text-gray-500 text-theme-sm dark:text-gray-400">{{ item.homeroom_teacher || '-' }}</span>
-                </td>
-                <td class="px-5 py-4">
-                  <span class="block text-gray-500 text-theme-sm dark:text-gray-400">{{ item.academic_year?.name }}</span>
-                </td>
-                <td v-if="isBendahara" class="px-5 py-4 text-right">
-                  <button @click="openModal(item)" class="text-brand-500 hover:text-brand-600 mr-3 text-sm">Edit</button>
-                  <button @click="deleteItem(item.id)" class="text-error-500 hover:text-error-600 text-sm">Hapus</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Modal -->
-      <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50">
-        <div class="bg-white rounded-xl shadow-lg w-full max-w-lg dark:bg-gray-800">
-          <form @submit.prevent="saveItem">
-            <div class="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
-              <h3 class="font-medium text-gray-800 dark:text-white/90">
-                {{ form.id ? 'Edit Kelas' : 'Tambah Kelas' }}
-              </h3>
-              <button type="button" @click="closeModal" class="text-gray-400 hover:text-gray-600">×</button>
-            </div>
-            <div class="p-5 space-y-4">
-              <div v-if="errorMessage" class="p-3 text-sm text-error-700 bg-error-50 rounded-lg">
-                {{ errorMessage }}
-              </div>
-              
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Nama Kelas (cth: X TJKT 1)</label>
-                  <input v-model="form.name" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-                </div>
-                <div>
-                  <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Tingkat (cth: X)</label>
-                  <input v-model="form.grade" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-                </div>
-              </div>
-
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Jurusan</label>
-                  <select v-model="form.major_id" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white">
-                    <option value="" disabled>Pilih Jurusan</option>
-                    <option v-for="major in majors" :key="major.id" :value="major.id">{{ major.name }}</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Tahun Ajaran</label>
-                  <select v-model="form.academic_year_id" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white">
-                    <option value="" disabled>Pilih Tahun Ajaran</option>
-                    <option v-for="year in academicYears" :key="year.id" :value="year.id">{{ year.name }}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Wali Kelas</label>
-                <input v-model="form.homeroom_teacher" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-              </div>
-              
-              <div>
-                <label class="flex items-center cursor-pointer">
-                  <input type="checkbox" v-model="form.status" class="w-5 h-5 border-gray-300 rounded text-brand-500 focus:ring-brand-500 dark:bg-gray-900 dark:border-gray-700" />
-                  <span class="ml-3 text-sm text-gray-700 dark:text-gray-300">Status Aktif</span>
-                </label>
-              </div>
-            </div>
-            <div class="flex justify-end p-5 border-t border-gray-200 dark:border-gray-700 gap-3">
-              <button type="button" @click="closeModal" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Batal</button>
-              <button type="submit" :disabled="saving" class="px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50">
-                {{ saving ? 'Menyimpan...' : 'Simpan' }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+      </template>
+    </BaseModal>
   </admin-layout>
 </template>
 
@@ -143,67 +192,89 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import { useNotice } from '@/composables/useNotice'
+import { errorMessage } from '@/utils/format'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
+import PageHeader from '@/components/app/PageHeader.vue'
+import DataState from '@/components/app/DataState.vue'
+import StatusTag from '@/components/app/StatusTag.vue'
+import BaseModal from '@/components/app/BaseModal.vue'
 
 const authStore = useAuthStore()
+const notice = useNotice()
 const isBendahara = computed(() => authStore.hasRole('Bendahara'))
 
 const items = ref([])
 const majors = ref([])
 const academicYears = ref([])
 const loading = ref(true)
+const loadError = ref('')
 const showModal = ref(false)
 const saving = ref(false)
-const errorMessage = ref('')
+const formError = ref('')
+const fieldErrors = ref({})
 
-const form = ref({
+const missingPrerequisites = computed(() => {
+  const missing = []
+  if (!majors.value.length) missing.push('jurusan')
+  if (!academicYears.value.length) missing.push('tahun pelajaran')
+  return missing
+})
+
+const activeYearId = computed(() => academicYears.value.find((year) => year.is_active)?.id || '')
+
+const emptyForm = () => ({
   id: null,
   name: '',
   grade: '',
   major_id: '',
-  academic_year_id: '',
+  academic_year_id: activeYearId.value,
   homeroom_teacher: '',
-  status: true
+  status: true,
 })
+const form = ref(emptyForm())
+
+const fieldError = (key) => fieldErrors.value[key]?.[0] || ''
 
 const fetchData = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     const [classesRes, majorsRes, yearsRes] = await Promise.all([
       axios.get('/api/v1/classes'),
       axios.get('/api/v1/majors'),
-      axios.get('/api/v1/academic-years')
+      axios.get('/api/v1/academic-years'),
     ])
     items.value = classesRes.data.data
     majors.value = majorsRes.data.data
     academicYears.value = yearsRes.data.data
   } catch (error) {
-    console.error('Failed to fetch data', error)
+    loadError.value = errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
   } finally {
     loading.value = false
   }
 }
 
-const openModal = (item = null) => {
-  errorMessage.value = ''
-  if (item) {
-    form.value = { 
-      ...item, 
-      status: Boolean(item.status),
-      major_id: item.major_id || '',
-      academic_year_id: item.academic_year_id || ''
-    }
-  } else {
-    form.value = { 
-      id: null, 
-      name: '', 
-      grade: '', 
-      major_id: '', 
-      academic_year_id: '', 
-      homeroom_teacher: '', 
-      status: true 
-    }
+const refreshClasses = async () => {
+  try {
+    const response = await axios.get('/api/v1/classes')
+    items.value = response.data.data
+  } catch (error) {
+    notice.error(errorMessage(error, 'Daftar kelas gagal dimuat ulang. Muat ulang halaman.'))
   }
+}
+
+const openModal = (item = null) => {
+  formError.value = ''
+  fieldErrors.value = {}
+  form.value = item
+    ? {
+        ...item,
+        status: Boolean(item.status),
+        major_id: item.major_id || '',
+        academic_year_id: item.academic_year_id || '',
+      }
+    : emptyForm()
   showModal.value = true
 }
 
@@ -213,38 +284,43 @@ const closeModal = () => {
 
 const saveItem = async () => {
   saving.value = true
-  errorMessage.value = ''
-  
+  formError.value = ''
+  fieldErrors.value = {}
+
   try {
     if (form.value.id) {
       await axios.put(`/api/v1/classes/${form.value.id}`, form.value)
     } else {
       await axios.post('/api/v1/classes', form.value)
     }
+    notice.success(`Kelas ${form.value.name} tersimpan.`)
     closeModal()
-    // only refresh classes
-    const res = await axios.get('/api/v1/classes')
-    items.value = res.data.data
+    refreshClasses()
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Terjadi kesalahan saat menyimpan'
+    fieldErrors.value = error.response?.data?.errors || {}
+    formError.value = errorMessage(error, 'Kelas gagal disimpan.')
   } finally {
     saving.value = false
   }
 }
 
-const deleteItem = async (id) => {
-  if (!confirm('Apakah Anda yakin ingin menghapus data ini?')) return
-  
+const deleteItem = async (item) => {
+  const confirmed = await notice.confirm({
+    title: 'Hapus kelas?',
+    message: `Kelas ${item.name} akan dihapus. Kelas yang sudah berisi siswa tidak bisa dihapus.`,
+    confirmLabel: 'Hapus kelas',
+    danger: true,
+  })
+  if (!confirmed) return
+
   try {
-    await axios.delete(`/api/v1/classes/${id}`)
-    const res = await axios.get('/api/v1/classes')
-    items.value = res.data.data
+    await axios.delete(`/api/v1/classes/${item.id}`)
+    notice.success(`Kelas ${item.name} dihapus.`)
+    refreshClasses()
   } catch (error) {
-    alert(error.response?.data?.message || 'Gagal menghapus data')
+    notice.error(errorMessage(error, 'Kelas gagal dihapus.'))
   }
 }
 
-onMounted(() => {
-  fetchData()
-})
+onMounted(fetchData)
 </script>

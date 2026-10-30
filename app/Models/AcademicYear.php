@@ -18,8 +18,8 @@ class AcademicYear extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
-        'start_date' => 'date',
-        'end_date' => 'date',
+        'start_date' => 'date:Y-m-d',
+        'end_date' => 'date:Y-m-d',
     ];
 
     public function classes()

@@ -21,7 +21,7 @@ class Invoice extends Model
     ];
 
     protected $casts = [
-        'due_date' => 'date',
+        'due_date' => 'date:Y-m-d',
     ];
 
     public function student()
@@ -38,7 +38,7 @@ class Invoice extends Model
     {
         return $this->hasMany(InvoiceItem::class);
     }
-    
+
     // Using boot to generate invoice_number
     protected static function boot()
     {
@@ -46,10 +46,10 @@ class Invoice extends Model
 
         static::creating(function ($model) {
             if (empty($model->invoice_number)) {
-                $prefix = 'INV-' . date('Ymd') . '-';
-                $lastInvoice = static::where('invoice_number', 'LIKE', $prefix . '%')->orderBy('id', 'desc')->first();
+                $prefix = 'INV-'.date('Ymd').'-';
+                $lastInvoice = static::where('invoice_number', 'LIKE', $prefix.'%')->orderBy('id', 'desc')->first();
                 $nextId = $lastInvoice ? intval(substr($lastInvoice->invoice_number, -4)) + 1 : 1;
-                $model->invoice_number = $prefix . str_pad($nextId, 4, '0', STR_PAD_LEFT);
+                $model->invoice_number = $prefix.str_pad($nextId, 4, '0', STR_PAD_LEFT);
             }
         });
     }

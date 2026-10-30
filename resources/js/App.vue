@@ -1,12 +1,19 @@
 <template>
-  <ThemeProvider>
-    <SidebarProvider>
-      <RouterView />
-    </SidebarProvider>
-  </ThemeProvider>
+  <SidebarProvider>
+    <RouterView />
+    <NoticeHost />
+  </SidebarProvider>
 </template>
 
 <script setup lang="ts">
-import ThemeProvider from './components/layout/ThemeProvider.vue'
+import { onMounted } from 'vue'
 import SidebarProvider from './components/layout/SidebarProvider.vue'
+import NoticeHost from './components/app/NoticeHost.vue'
+import { useSchoolStore } from './stores/school'
+
+const schoolStore = useSchoolStore()
+
+onMounted(() => {
+  schoolStore.loadProfile()
+})
 </script>

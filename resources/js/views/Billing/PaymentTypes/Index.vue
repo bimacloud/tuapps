@@ -1,124 +1,173 @@
 <template>
   <admin-layout>
-    <div class="space-y-5 sm:space-y-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800 dark:text-white/90">Jenis Pembayaran</h2>
-        <div class="flex gap-2" v-if="isBendahara">
-          <button @click="openModal()" class="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white transition bg-brand-500 rounded-lg hover:bg-brand-600">
-            Tambah Jenis
-          </button>
-        </div>
+    <PageHeader
+      title="Jenis Pembayaran"
+      description="Daftar pos pembayaran sekolah. Tarif dan tagihan selalu mengacu ke jenis pembayaran di sini."
+    >
+      <template v-if="isBendahara" #actions>
+        <button type="button" class="btn btn-primary" @click="openModal()">Tambah jenis pembayaran</button>
+      </template>
+    </PageHeader>
+
+    <section class="panel overflow-hidden">
+      <DataState v-if="loading" state="loading" message="Mengambil daftar jenis pembayaran." />
+      <DataState v-else-if="loadError" state="error" :message="loadError">
+        <button type="button" class="btn btn-secondary" @click="fetchData">Coba lagi</button>
+      </DataState>
+      <DataState
+        v-else-if="items.length === 0"
+        state="empty"
+        title="Belum ada jenis pembayaran."
+        :message="isBendahara ? 'Tambahkan jenis pembayaran dulu, lalu atur tarifnya di menu Tarif Pembayaran.' : 'Bendahara belum menambahkan jenis pembayaran.'"
+      >
+        <button v-if="isBendahara" type="button" class="btn btn-primary" @click="openModal()">Tambah jenis pembayaran</button>
+      </DataState>
+
+      <div v-else class="overflow-x-auto">
+        <table class="table-data">
+          <thead>
+            <tr>
+              <th scope="col" class="w-28">Kode</th>
+              <th scope="col">Nama pembayaran</th>
+              <th scope="col" class="w-36">Tipe</th>
+              <th scope="col">Kategori</th>
+              <th scope="col" class="w-28">Status</th>
+              <th v-if="isBendahara" scope="col" class="w-40"><span class="sr-only">Aksi</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in items" :key="item.id">
+              <td class="font-display text-lg font-bold">{{ item.code }}</td>
+              <td>
+                <span class="font-medium">{{ item.name }}</span>
+                <span v-if="item.description" class="mt-0.5 block text-sm text-tinta-2">{{ item.description }}</span>
+              </td>
+              <td><StatusTag :status="item.type" :label="typeLabel(item.type)" /></td>
+              <td :class="item.category ? '' : 'text-tinta-2'">{{ item.category || '-' }}</td>
+              <td><StatusTag :status="Boolean(item.status)" /></td>
+              <td v-if="isBendahara" class="text-right">
+                <div class="flex justify-end gap-1">
+                  <button type="button" class="btn btn-ghost btn-sm" @click="openModal(item)">
+                    Ubah<span class="sr-only"> {{ item.name }}</span>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm !text-galat" @click="deleteItem(item)">
+                    Hapus<span class="sr-only"> {{ item.name }}</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+    </section>
 
-      <!-- Data Table -->
-      <div class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div class="max-w-full overflow-x-auto">
-          <table class="min-w-full">
-            <thead>
-              <tr class="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                <th class="px-5 py-3 text-left w-16">No</th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Kode</p></th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Nama</p></th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Kategori & Tipe</p></th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Status</p></th>
-                <th v-if="isBendahara" class="px-5 py-3 text-right"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Aksi</p></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-              <tr v-if="loading">
-                <td colspan="6" class="px-5 py-4 text-center">Loading...</td>
-              </tr>
-              <tr v-else-if="items.length === 0">
-                <td colspan="6" class="px-5 py-4 text-center">Tidak ada data.</td>
-              </tr>
-              <tr v-for="(item, index) in items" :key="item.id" class="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                <td class="px-5 py-4 text-sm text-gray-500">{{ index + 1 }}</td>
-                <td class="px-5 py-4 text-sm text-gray-800 dark:text-white/90 font-medium">{{ item.code }}</td>
-                <td class="px-5 py-4 text-sm text-gray-800 dark:text-white/90">
-                  {{ item.name }}
-                  <span v-if="item.description" class="block text-xs text-gray-500 mt-1">{{ item.description }}</span>
-                </td>
-                <td class="px-5 py-4 text-sm text-gray-500">
-                  <div><span class="font-medium">Tipe:</span> {{ item.type }}</div>
-                  <div v-if="item.category"><span class="font-medium">Kategori:</span> {{ item.category }}</div>
-                </td>
-                <td class="px-5 py-4">
-                  <span :class="item.status ? 'bg-success-50 text-success-700' : 'bg-error-50 text-error-700'" class="rounded-full px-2 py-0.5 text-theme-xs font-medium">
-                    {{ item.status ? 'Aktif' : 'Nonaktif' }}
-                  </span>
-                </td>
-                <td v-if="isBendahara" class="px-5 py-4 text-right">
-                  <button @click="openModal(item)" class="text-brand-500 hover:text-brand-600 mr-3 text-sm">Edit</button>
-                  <button @click="deleteItem(item.id)" class="text-error-500 hover:text-error-600 text-sm">Hapus</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+    <BaseModal
+      :open="showModal"
+      :title="form.id ? 'Ubah jenis pembayaran' : 'Tambah jenis pembayaran'"
+      @close="closeModal"
+    >
+      <form id="payment-type-form" class="space-y-4" @submit.prevent="saveItem">
+        <p
+          v-if="formError && !hasFieldErrors"
+          class="rounded-[var(--radius-kontrol)] bg-galat-muda px-3 py-2 text-sm font-semibold text-galat"
+          role="alert"
+        >
+          {{ formError }}
+        </p>
+
+        <div>
+          <label for="payment-type-code" class="field-label">Kode</label>
+          <input
+            id="payment-type-code"
+            v-model="form.code"
+            type="text"
+            required
+            maxlength="50"
+            class="field-input uppercase"
+            placeholder="Singkatan pendek, misalnya SPP"
+            :aria-invalid="Boolean(fieldErrors.code)"
+            :aria-describedby="fieldErrors.code ? 'payment-type-code-error' : undefined"
+          />
+          <p v-if="fieldErrors.code" id="payment-type-code-error" class="field-error">{{ fieldErrors.code[0] }}</p>
         </div>
-      </div>
 
-      <!-- Form Modal -->
-      <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50">
-        <div class="bg-white rounded-xl shadow-lg w-full max-w-md dark:bg-gray-800">
-          <form @submit.prevent="saveItem">
-            <div class="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
-              <h3 class="font-medium text-gray-800 dark:text-white/90">
-                {{ form.id ? 'Edit Jenis Pembayaran' : 'Tambah Jenis Pembayaran' }}
-              </h3>
-              <button type="button" @click="closeModal" class="text-gray-400 hover:text-gray-600">×</button>
-            </div>
-            
-            <div class="p-5 space-y-4">
-              <div v-if="errorMessage" class="p-3 text-sm text-error-700 bg-error-50 rounded-lg">
-                {{ errorMessage }}
-              </div>
-              
-              <div>
-                <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Kode *</label>
-                <input v-model="form.code" type="text" required placeholder="Contoh: SPP, DSP, UTS" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-              </div>
-
-              <div>
-                <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Nama Pembayaran *</label>
-                <input v-model="form.name" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-              </div>
-
-              <div>
-                <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Tipe *</label>
-                <select v-model="form.type" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white">
-                  <option value="BULANAN">BULANAN (Contoh: SPP)</option>
-                  <option value="SEMESTER">SEMESTER (Contoh: UTS, UAS)</option>
-                  <option value="TAHUNAN">TAHUNAN (Contoh: Daftar Ulang)</option>
-                  <option value="KHUSUS">KHUSUS (Contoh: DSP, Seragam)</option>
-                </select>
-              </div>
-              
-              <div>
-                <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Kategori (Opsional)</label>
-                <input v-model="form.category" type="text" placeholder="Contoh: Wajib, Ekstrakurikuler" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-              </div>
-              
-              <div>
-                <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Keterangan (Opsional)</label>
-                <textarea v-model="form.description" rows="2" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white"></textarea>
-              </div>
-
-              <div class="flex items-center gap-2 pt-2">
-                <input v-model="form.status" type="checkbox" id="status" class="w-4 h-4 text-brand-500 border-gray-300 rounded focus:ring-brand-500 dark:bg-gray-900 dark:border-gray-700" />
-                <label for="status" class="text-sm font-medium text-gray-700 dark:text-gray-300">Status Aktif</label>
-              </div>
-            </div>
-            
-            <div class="flex justify-end p-5 border-t border-gray-200 dark:border-gray-700 gap-3">
-              <button type="button" @click="closeModal" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Batal</button>
-              <button type="submit" :disabled="saving" class="px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50">
-                {{ saving ? 'Menyimpan...' : 'Simpan' }}
-              </button>
-            </div>
-          </form>
+        <div>
+          <label for="payment-type-type" class="field-label">Tipe</label>
+          <select
+            id="payment-type-type"
+            v-model="form.type"
+            required
+            class="field-input"
+            :aria-invalid="Boolean(fieldErrors.type)"
+            :aria-describedby="fieldErrors.type ? 'payment-type-type-error' : undefined"
+          >
+            <option v-for="option in typeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+          <p v-if="fieldErrors.type" id="payment-type-type-error" class="field-error">{{ fieldErrors.type[0] }}</p>
         </div>
-      </div>
-    </div>
+
+        <div>
+          <label for="payment-type-name" class="field-label">Nama pembayaran</label>
+          <input
+            id="payment-type-name"
+            v-model="form.name"
+            type="text"
+            required
+            maxlength="255"
+            class="field-input"
+            placeholder="Nama yang tampil di tagihan dan kartu pembayaran"
+            :aria-invalid="Boolean(fieldErrors.name)"
+            :aria-describedby="nameDescribedBy"
+          />
+          <p v-if="fieldErrors.name" id="payment-type-name-error" class="field-error">{{ fieldErrors.name[0] }}</p>
+          <p v-if="form.type !== 'BULANAN'" id="payment-type-name-hint" class="field-hint">
+            Kartu pembayaran mencocokkan nama ini dengan barisnya: Daftar Ulang, LKS atau Buku (sertakan Semester 1/2
+            atau Ganjil/Genap di nama atau periode), ASTS, ASAS, ASAT, PKL, Asesmen Akhir. Nama lain dicetak di baris
+            kosong terakhir kartu.
+          </p>
+        </div>
+
+        <div>
+          <label for="payment-type-category" class="field-label">Kategori <span class="font-normal text-tinta-2">(opsional)</span></label>
+          <input
+            id="payment-type-category"
+            v-model="form.category"
+            type="text"
+            maxlength="255"
+            class="field-input"
+            placeholder="Pengelompokan bebas, misalnya Wajib"
+            :aria-invalid="Boolean(fieldErrors.category)"
+            :aria-describedby="fieldErrors.category ? 'payment-type-category-error' : undefined"
+          />
+          <p v-if="fieldErrors.category" id="payment-type-category-error" class="field-error">{{ fieldErrors.category[0] }}</p>
+        </div>
+
+        <div>
+          <label for="payment-type-description" class="field-label">Keterangan <span class="font-normal text-tinta-2">(opsional)</span></label>
+          <textarea
+            id="payment-type-description"
+            v-model="form.description"
+            rows="2"
+            class="field-input"
+            placeholder="Catatan untuk staf TU"
+            :aria-invalid="Boolean(fieldErrors.description)"
+            :aria-describedby="fieldErrors.description ? 'payment-type-description-error' : undefined"
+          ></textarea>
+          <p v-if="fieldErrors.description" id="payment-type-description-error" class="field-error">{{ fieldErrors.description[0] }}</p>
+        </div>
+
+        <label class="flex min-h-11 items-center gap-3">
+          <input v-model="form.status" type="checkbox" class="field-check" />
+          <span class="font-medium">Jenis pembayaran aktif</span>
+        </label>
+      </form>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="closeModal">Batal</button>
+        <button type="submit" form="payment-type-form" class="btn btn-primary" :disabled="saving">
+          {{ saving ? 'Menyimpan...' : 'Simpan jenis pembayaran' }}
+        </button>
+      </template>
+    </BaseModal>
   </admin-layout>
 </template>
 
@@ -126,45 +175,66 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import { useNotice } from '@/composables/useNotice'
+import { errorMessage } from '@/utils/format'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
+import PageHeader from '@/components/app/PageHeader.vue'
+import DataState from '@/components/app/DataState.vue'
+import StatusTag from '@/components/app/StatusTag.vue'
+import BaseModal from '@/components/app/BaseModal.vue'
 
 const authStore = useAuthStore()
+const notice = useNotice()
 const isBendahara = computed(() => authStore.hasRole('Bendahara'))
+
+/** Values accepted by PaymentTypeController validation. */
+const typeOptions = [
+  { value: 'BULANAN', label: 'Bulanan (Juli sampai Juni)' },
+  { value: 'SEMESTER', label: 'Semester' },
+  { value: 'TAHUNAN', label: 'Tahunan' },
+  { value: 'KHUSUS', label: 'Khusus' },
+]
+
+const typeLabels = { BULANAN: 'Bulanan', SEMESTER: 'Semester', TAHUNAN: 'Tahunan', KHUSUS: 'Khusus' }
+const typeLabel = (type) => typeLabels[type] ?? type
 
 const items = ref([])
 const loading = ref(true)
+const loadError = ref('')
 const showModal = ref(false)
 const saving = ref(false)
-const errorMessage = ref('')
+const formError = ref('')
+const fieldErrors = ref({})
 
-const form = ref({
-  id: null,
-  code: '',
-  name: '',
-  category: '',
-  type: 'BULANAN',
-  description: '',
-  status: true
+const hasFieldErrors = computed(() => Object.keys(fieldErrors.value).length > 0)
+
+const nameDescribedBy = computed(() => {
+  const ids = []
+  if (fieldErrors.value.name) ids.push('payment-type-name-error')
+  if (form.value.type !== 'BULANAN') ids.push('payment-type-name-hint')
+  return ids.length ? ids.join(' ') : undefined
 })
 
+const emptyForm = () => ({ id: null, code: '', name: '', category: '', type: 'BULANAN', description: '', status: true })
+const form = ref(emptyForm())
+
 const fetchData = async () => {
+  loading.value = true
+  loadError.value = ''
   try {
     const response = await axios.get('/api/v1/payment-types')
     items.value = response.data.data
   } catch (error) {
-    console.error('Failed to fetch data', error)
+    loadError.value = errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
   } finally {
     loading.value = false
   }
 }
 
 const openModal = (item = null) => {
-  errorMessage.value = ''
-  if (item) {
-    form.value = { ...item }
-  } else {
-    form.value = { id: null, code: '', name: '', category: '', type: 'BULANAN', description: '', status: true }
-  }
+  formError.value = ''
+  fieldErrors.value = {}
+  form.value = item ? { ...item } : emptyForm()
   showModal.value = true
 }
 
@@ -174,34 +244,43 @@ const closeModal = () => {
 
 const saveItem = async () => {
   saving.value = true
-  errorMessage.value = ''
+  formError.value = ''
+  fieldErrors.value = {}
+
   try {
     if (form.value.id) {
       await axios.put(`/api/v1/payment-types/${form.value.id}`, form.value)
     } else {
       await axios.post('/api/v1/payment-types', form.value)
     }
+    notice.success(`Jenis pembayaran ${form.value.name} tersimpan.`)
     closeModal()
     fetchData()
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Terjadi kesalahan saat menyimpan'
+    fieldErrors.value = error.response?.data?.errors ?? {}
+    formError.value = errorMessage(error, 'Jenis pembayaran gagal disimpan.')
   } finally {
     saving.value = false
   }
 }
 
-const deleteItem = async (id) => {
-  if (!confirm('Apakah Anda yakin ingin menghapus data ini?')) return
-  
+const deleteItem = async (item) => {
+  const confirmed = await notice.confirm({
+    title: 'Hapus jenis pembayaran?',
+    message: `${item.code} (${item.name}) akan dihapus. Jenis yang sudah punya tarif tidak bisa dihapus.`,
+    confirmLabel: 'Hapus jenis pembayaran',
+    danger: true,
+  })
+  if (!confirmed) return
+
   try {
-    await axios.delete(`/api/v1/payment-types/${id}`)
+    await axios.delete(`/api/v1/payment-types/${item.id}`)
+    notice.success(`Jenis pembayaran ${item.code} dihapus.`)
     fetchData()
   } catch (error) {
-    alert(error.response?.data?.message || 'Gagal menghapus data')
+    notice.error(errorMessage(error, 'Jenis pembayaran gagal dihapus.'))
   }
 }
 
-onMounted(() => {
-  fetchData()
-})
+onMounted(fetchData)
 </script>

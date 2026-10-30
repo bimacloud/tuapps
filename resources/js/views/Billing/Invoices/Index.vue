@@ -1,122 +1,209 @@
 <template>
   <admin-layout>
-    <div class="space-y-5 sm:space-y-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800 dark:text-white/90">Daftar Tagihan</h2>
-        <div class="flex gap-2" v-if="isBendahara">
-          <router-link to="/invoices/generate" class="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white transition bg-brand-500 rounded-lg hover:bg-brand-600">
-            Generate Tagihan Massal
-          </router-link>
-        </div>
-      </div>
+    <PageHeader title="Daftar Tagihan" description="Tagihan siswa per jenis pembayaran dan periode, beserta sisa yang belum dibayar.">
+      <template v-if="isBendahara" #actions>
+        <router-link to="/billing/invoices/generate" class="btn btn-primary">Buat tagihan</router-link>
+      </template>
+    </PageHeader>
 
-      <!-- Filters -->
-      <div class="p-4 bg-white rounded-xl border border-gray-200 dark:bg-gray-800 dark:border-gray-700 flex flex-wrap gap-4 items-end">
-        <div class="flex-1 min-w-[200px]">
-          <label class="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">Pencarian (No. Invoice, Nama Siswa)</label>
-          <input v-model="filters.search" @keyup.enter="fetchData" type="text" placeholder="Ketik lalu Enter..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
+    <section class="panel mb-4 p-4" aria-label="Saring tagihan">
+      <form class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]" @submit.prevent="applyFilters">
+        <div class="sm:col-span-2 lg:col-span-1">
+          <label for="invoice-search" class="field-label">Cari nomor tagihan atau siswa</label>
+          <div class="flex gap-2">
+            <input
+              id="invoice-search"
+              v-model="filters.search"
+              type="search"
+              class="field-input min-w-0"
+              placeholder="Nomor tagihan, nama, atau NIS"
+            />
+            <button type="submit" class="btn btn-secondary shrink-0">Cari</button>
+          </div>
         </div>
-        <div class="w-48">
-          <label class="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">Tahun Pelajaran</label>
-          <select v-model="filters.academic_year_id" @change="fetchData" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white">
-            <option value="">Semua Tahun</option>
+        <div>
+          <label for="invoice-filter-year" class="field-label">Tahun pelajaran</label>
+          <select id="invoice-filter-year" v-model="filters.academic_year_id" class="field-input" @change="applyFilters">
+            <option value="">Semua tahun</option>
             <option v-for="ay in academicYears" :key="ay.id" :value="ay.id">{{ ay.name }}</option>
           </select>
         </div>
-        <div class="w-48">
-          <label class="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">Kelas</label>
-          <select v-model="filters.class_id" @change="fetchData" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white">
-            <option value="">Semua Kelas</option>
+        <div>
+          <label for="invoice-filter-class" class="field-label">Kelas</label>
+          <select id="invoice-filter-class" v-model="filters.class_id" class="field-input" @change="applyFilters">
+            <option value="">Semua kelas</option>
             <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
         </div>
-        <div class="w-40">
-          <label class="block mb-1 text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-          <select v-model="filters.status" @change="fetchData" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white">
-            <option value="">Semua Status</option>
-            <option value="BELUM BAYAR">BELUM BAYAR</option>
-            <option value="SEBAGIAN">SEBAGIAN</option>
-            <option value="LUNAS">LUNAS</option>
-            <option value="CANCELLED">CANCELLED</option>
+        <div>
+          <label for="invoice-filter-status" class="field-label">Status</label>
+          <select id="invoice-filter-status" v-model="filters.status" class="field-input" @change="applyFilters">
+            <option value="">Semua status</option>
+            <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </div>
-        <div>
-          <button @click="resetFilters" class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">Reset</button>
-        </div>
+      </form>
+      <div v-if="hasFilterInput" class="mt-3">
+        <button type="button" class="btn btn-ghost btn-sm" @click="resetFilters">Hapus semua saringan</button>
       </div>
+    </section>
 
-      <!-- Data Table -->
-      <div class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div class="max-w-full overflow-x-auto">
-          <table class="min-w-full">
+    <section class="panel overflow-hidden">
+      <DataState v-if="loading" state="loading" message="Mengambil daftar tagihan." />
+      <DataState v-else-if="loadError" state="error" :message="loadError">
+        <button type="button" class="btn btn-secondary" @click="fetchData">Coba lagi</button>
+      </DataState>
+      <DataState
+        v-else-if="items.length === 0 && queriedWithFilters"
+        state="empty"
+        title="Tidak ada tagihan yang cocok."
+        message="Saringan yang dipilih tidak menemukan tagihan. Ubah saringan atau hapus semuanya."
+      >
+        <button type="button" class="btn btn-secondary" @click="resetFilters">Hapus semua saringan</button>
+      </DataState>
+      <DataState
+        v-else-if="items.length === 0"
+        state="empty"
+        title="Belum ada tagihan."
+        :message="isBendahara ? 'Tagihan dibuat per kelas dari tarif yang sudah diatur.' : 'Bendahara belum membuat tagihan.'"
+      >
+        <router-link v-if="isBendahara" to="/billing/invoices/generate" class="btn btn-primary">Buat tagihan</router-link>
+      </DataState>
+
+      <template v-else>
+        <div class="overflow-x-auto">
+          <table class="table-data">
             <thead>
-              <tr class="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                <th class="px-5 py-3 text-left w-16">No</th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">No. Invoice</p></th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Siswa</p></th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Kelas</p></th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Total / Sisa</p></th>
-                <th class="px-5 py-3 text-left"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Status</p></th>
-                <th class="px-5 py-3 text-right"><p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Aksi</p></th>
+              <tr>
+                <th scope="col">Siswa</th>
+                <th scope="col">Jenis dan periode</th>
+                <th scope="col" class="!text-right">Total</th>
+                <th scope="col" class="!text-right">Sisa</th>
+                <th scope="col">Status</th>
+                <th scope="col">No. tagihan</th>
+                <th scope="col"><span class="sr-only">Aksi</span></th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-              <tr v-if="loading">
-                <td colspan="7" class="px-5 py-4 text-center">Loading...</td>
-              </tr>
-              <tr v-else-if="items.length === 0">
-                <td colspan="7" class="px-5 py-4 text-center">Tidak ada data tagihan.</td>
-              </tr>
-              <tr v-for="(item, index) in items" :key="item.id" class="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                <td class="px-5 py-4 text-sm text-gray-500">{{ (pagination.current_page - 1) * pagination.per_page + index + 1 }}</td>
-                <td class="px-5 py-4 text-sm text-gray-800 dark:text-white/90 font-medium">
-                  {{ item.invoice_number }}
-                  <span class="block text-xs text-gray-500 font-normal">{{ formatDate(item.created_at) }}</span>
-                </td>
-                <td class="px-5 py-4 text-sm text-gray-800 dark:text-white/90">
-                  {{ item.student?.name }}
-                  <span class="block text-xs text-gray-500 font-normal">{{ item.student?.nis }} / {{ item.student?.nisn }}</span>
-                </td>
-                <td class="px-5 py-4 text-sm text-gray-800 dark:text-white/90">
-                  {{ item.student?.class_room?.name }}
-                </td>
-                <td class="px-5 py-4 text-sm text-gray-800 dark:text-white/90">
-                  <span class="block font-medium">{{ formatRupiah(item.total_amount) }}</span>
-                  <span v-if="item.remaining_amount > 0" class="block text-xs text-error-600 font-medium">Sisa: {{ formatRupiah(item.remaining_amount) }}</span>
-                </td>
-                <td class="px-5 py-4">
-                  <span :class="getStatusClass(item.status)" class="rounded-full px-2 py-0.5 text-theme-xs font-medium">
-                    {{ item.status }}
+            <tbody>
+              <tr v-for="item in items" :key="item.id">
+                <td class="min-w-44">
+                  <span class="font-medium">{{ item.student?.name || '-' }}</span>
+                  <span class="mt-0.5 block text-sm text-tinta-2">
+                    {{ studentMeta(item.student) }}
                   </span>
                 </td>
-                <td class="px-5 py-4 text-right">
-                  <button @click="showDetail(item)" class="text-brand-500 hover:text-brand-600 text-sm">Lihat Detail</button>
+                <td class="min-w-44">
+                  <span v-for="line in itemLines(item).shown" :key="line" class="block">{{ line }}</span>
+                  <span v-if="itemLines(item).hidden > 0" class="block text-sm text-tinta-2">
+                    dan {{ itemLines(item).hidden }} lainnya
+                  </span>
+                </td>
+                <td class="num">{{ formatRupiah(item.total_amount) }}</td>
+                <td class="num font-semibold" :class="Number(item.remaining_amount) > 0 ? '' : 'text-tinta-2'">
+                  {{ formatRupiah(item.remaining_amount) }}
+                </td>
+                <td><StatusTag :status="item.status" /></td>
+                <td class="whitespace-nowrap">
+                  {{ item.invoice_number }}
+                  <span class="mt-0.5 block text-sm text-tinta-2">Dibuat {{ formatDate(item.created_at) }}</span>
+                </td>
+                <td class="text-right">
+                  <button type="button" class="btn btn-ghost btn-sm" @click="showDetail(item)">
+                    Rincian<span class="sr-only"> tagihan {{ item.invoice_number }}</span>
+                  </button>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        
-        <!-- Pagination -->
-        <div v-if="pagination.total > pagination.per_page" class="flex items-center justify-between px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <span class="text-sm text-gray-500 dark:text-gray-400">
-            Menampilkan {{ pagination.from }} - {{ pagination.to }} dari {{ pagination.total }} tagihan
-          </span>
+
+        <nav
+          v-if="pagination.total > pagination.per_page"
+          class="flex flex-wrap items-center justify-between gap-3 border-t border-garis px-4 py-3"
+          aria-label="Halaman daftar tagihan"
+        >
+          <p class="text-sm text-tinta-2">
+            Menampilkan {{ pagination.from }} sampai {{ pagination.to }} dari {{ pagination.total }} tagihan
+          </p>
           <div class="flex gap-2">
-            <button 
-              @click="changePage(pagination.current_page - 1)" 
+            <button
+              type="button"
+              class="btn btn-secondary"
               :disabled="!pagination.prev_page_url"
-              class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            >Prev</button>
-            <button 
-              @click="changePage(pagination.current_page + 1)" 
+              @click="changePage(pagination.current_page - 1)"
+            >
+              Sebelumnya
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
               :disabled="!pagination.next_page_url"
-              class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            >Next</button>
+              @click="changePage(pagination.current_page + 1)"
+            >
+              Berikutnya
+            </button>
           </div>
+        </nav>
+      </template>
+    </section>
+
+    <BaseModal
+      :open="Boolean(detailInvoice)"
+      size="lg"
+      :title="detailInvoice ? `Tagihan ${detailInvoice.invoice_number}` : ''"
+      :description="detailInvoice ? detailDescription : ''"
+      @close="detailInvoice = null"
+    >
+      <template v-if="detailInvoice">
+        <dl class="mb-5 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+          <div>
+            <dt class="text-sm text-tinta-2">Status</dt>
+            <dd class="mt-1"><StatusTag :status="detailInvoice.status" /></dd>
+          </div>
+          <div>
+            <dt class="text-sm text-tinta-2">Jatuh tempo</dt>
+            <dd class="mt-1 font-medium">{{ formatDate(detailInvoice.due_date) }}</dd>
+          </div>
+          <div>
+            <dt class="text-sm text-tinta-2">Total</dt>
+            <dd class="mt-1 font-medium tabular-nums">{{ formatRupiah(detailInvoice.total_amount) }}</dd>
+          </div>
+          <div>
+            <dt class="text-sm text-tinta-2">Sisa</dt>
+            <dd class="mt-1 font-semibold tabular-nums">{{ formatRupiah(detailInvoice.remaining_amount) }}</dd>
+          </div>
+        </dl>
+
+        <p v-if="!detailInvoice.items?.length" class="text-tinta-2">Tagihan ini tidak memiliki rincian item.</p>
+        <div v-else class="overflow-x-auto rounded-[var(--radius-kontrol)] border border-garis">
+          <table class="table-data">
+            <thead>
+              <tr>
+                <th scope="col">Jenis</th>
+                <th scope="col">Periode</th>
+                <th scope="col" class="!text-right">Nominal</th>
+                <th scope="col" class="!text-right">Dibayar</th>
+                <th scope="col" class="!text-right">Sisa</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="line in detailInvoice.items" :key="line.id">
+                <td>
+                  {{ line.payment_type?.name || line.description || '-' }}
+                  <span v-if="line.payment_type && line.description" class="mt-0.5 block text-sm text-tinta-2">{{ line.description }}</span>
+                </td>
+                <td class="whitespace-nowrap">{{ line.period || '-' }}</td>
+                <td class="num">{{ formatRupiah(line.amount) }}</td>
+                <td class="num">{{ formatRupiah(line.paid_amount) }}</td>
+                <td class="num font-semibold">{{ formatRupiah(line.remaining_amount) }}</td>
+                <td><StatusTag :status="line.status" /></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
-    </div>
+      </template>
+    </BaseModal>
   </admin-layout>
 </template>
 
@@ -124,22 +211,36 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import { useNotice } from '@/composables/useNotice'
+import { errorMessage, formatDate, formatRupiah } from '@/utils/format'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
+import PageHeader from '@/components/app/PageHeader.vue'
+import DataState from '@/components/app/DataState.vue'
+import StatusTag from '@/components/app/StatusTag.vue'
+import BaseModal from '@/components/app/BaseModal.vue'
 
 const authStore = useAuthStore()
+const notice = useNotice()
 const isBendahara = computed(() => authStore.hasRole('Bendahara'))
+
+/** Values match the invoices.status enum. */
+const statusOptions = [
+  { value: 'BELUM BAYAR', label: 'Belum bayar' },
+  { value: 'SEBAGIAN', label: 'Sebagian' },
+  { value: 'LUNAS', label: 'Lunas' },
+  { value: 'CANCELLED', label: 'Dibatalkan' },
+]
 
 const items = ref([])
 const academicYears = ref([])
 const classes = ref([])
 const loading = ref(true)
+const loadError = ref('')
+const queriedWithFilters = ref(false)
+const detailInvoice = ref(null)
 
-const filters = ref({
-  search: '',
-  academic_year_id: '',
-  class_id: '',
-  status: ''
-})
+const emptyFilters = () => ({ search: '', academic_year_id: '', class_id: '', status: '' })
+const filters = ref(emptyFilters())
 
 const pagination = ref({
   current_page: 1,
@@ -149,51 +250,59 @@ const pagination = ref({
   from: 0,
   to: 0,
   prev_page_url: null,
-  next_page_url: null
+  next_page_url: null,
 })
 
-const formatRupiah = (number) => {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number)
+const hasFilterInput = computed(() => Object.values(filters.value).some((value) => value !== ''))
+
+const studentMeta = (student) => {
+  if (!student) return ''
+  const parts = [student.nis, student.class_room?.name].filter(Boolean)
+  return parts.join(', ')
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('id-ID')
+/**
+ * Short "jenis + periode" lines for the table cell; the full list lives in the detail dialog.
+ *
+ * @return {{ shown: string[], hidden: number }}
+ */
+const itemLines = (invoice) => {
+  const lines = (invoice.items ?? []).map((line) => {
+    const name = line.payment_type?.name || line.description || 'Tagihan'
+    return line.period ? `${name} ${line.period}` : name
+  })
+  return { shown: lines.slice(0, 2), hidden: Math.max(lines.length - 2, 0) }
 }
 
-const getStatusClass = (status) => {
-  switch(status) {
-    case 'LUNAS': return 'bg-success-50 text-success-700'
-    case 'BELUM BAYAR': return 'bg-error-50 text-error-700'
-    case 'SEBAGIAN': return 'bg-warning-50 text-warning-700'
-    case 'CANCELLED': return 'bg-gray-100 text-gray-600'
-    default: return 'bg-gray-100 text-gray-600'
-  }
-}
+const detailDescription = computed(() => {
+  const invoice = detailInvoice.value
+  if (!invoice) return ''
+  const parts = [invoice.student?.name, invoice.student?.class_room?.name, invoice.academic_year?.name].filter(Boolean)
+  return parts.join(', ')
+})
 
 const fetchDependencies = async () => {
   try {
-    const [ayRes, clRes] = await Promise.all([
-      axios.get('/api/v1/academic-years'),
-      axios.get('/api/v1/classes')
-    ])
+    const [ayRes, clRes] = await Promise.all([axios.get('/api/v1/academic-years'), axios.get('/api/v1/classes')])
     academicYears.value = ayRes.data.data
     classes.value = clRes.data.data
   } catch (error) {
-    console.error(error)
+    notice.error(errorMessage(error, 'Pilihan tahun dan kelas gagal dimuat. Muat ulang halaman untuk menyaring.'))
   }
 }
 
 const fetchData = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     const params = {
       ...filters.value,
-      page: pagination.value.current_page
+      page: pagination.value.current_page,
     }
     const response = await axios.get('/api/v1/invoices', { params })
     items.value = response.data.data
-    
+    queriedWithFilters.value = hasFilterInput.value
+
     pagination.value = {
       current_page: response.data.current_page,
       last_page: response.data.last_page,
@@ -202,13 +311,18 @@ const fetchData = async () => {
       from: response.data.from,
       to: response.data.to,
       prev_page_url: response.data.prev_page_url,
-      next_page_url: response.data.next_page_url
+      next_page_url: response.data.next_page_url,
     }
   } catch (error) {
-    console.error('Failed to fetch data', error)
+    loadError.value = errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
   } finally {
     loading.value = false
   }
+}
+
+const applyFilters = () => {
+  pagination.value.current_page = 1
+  fetchData()
 }
 
 const changePage = (page) => {
@@ -218,14 +332,13 @@ const changePage = (page) => {
 }
 
 const resetFilters = () => {
-  filters.value = { search: '', academic_year_id: '', class_id: '', status: '' }
+  filters.value = emptyFilters()
   pagination.value.current_page = 1
   fetchData()
 }
 
 const showDetail = (item) => {
-  // Arahkan ke halaman detail invoice jika sudah dibuat
-  alert(`Menampilkan detail invoice ${item.invoice_number}. Fitur Detail penuh akan ada di halaman terpisah.`)
+  detailInvoice.value = item
 }
 
 onMounted(async () => {

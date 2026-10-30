@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use App\Models\Setting;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class SettingsController extends Controller
@@ -12,9 +12,24 @@ class SettingsController extends Controller
     public function index()
     {
         $settings = Setting::pluck('value', 'key');
+
         return response()->json([
             'success' => true,
-            'data' => $settings
+            'data' => $settings,
+        ]);
+    }
+
+    /**
+     * Public school identity for the sign-in page and print headers. Only whitelisted keys leave the server.
+     */
+    public function profile()
+    {
+        $settings = Setting::whereIn('key', ['school_name', 'school_address', 'school_phone', 'school_email', 'school_logo'])
+            ->pluck('value', 'key');
+
+        return response()->json([
+            'success' => true,
+            'data' => $settings,
         ]);
     }
 
@@ -39,7 +54,7 @@ class SettingsController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Pengaturan berhasil diperbarui.'
+            'message' => 'Pengaturan berhasil diperbarui.',
         ]);
     }
 }

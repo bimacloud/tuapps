@@ -3,8 +3,9 @@
 namespace App\Exports;
 
 use App\Models\Student;
-use Maatwebsite\Excel\Concerns\FromQuery;
+use Illuminate\Database\Eloquent\Builder;
 use Maatwebsite\Excel\Concerns\Exportable;
+use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 
@@ -19,7 +20,7 @@ class StudentExport implements FromQuery, WithHeadings, WithMapping
         $this->request = $request;
     }
 
-    public function query()
+    public function query(): Builder
     {
         $query = Student::with(['classRoom.major', 'major', 'guardian']);
 
@@ -55,7 +56,7 @@ class StudentExport implements FromQuery, WithHeadings, WithMapping
             'Status',
             'Nama Wali',
             'Telepon Wali',
-            'Hubungan Wali'
+            'Hubungan Wali',
         ];
     }
 

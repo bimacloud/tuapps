@@ -1,119 +1,184 @@
 <template>
   <admin-layout>
-    <div class="space-y-5 sm:space-y-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-gray-800 dark:text-white/90">Tahun Pelajaran</h2>
-        <button
-          v-if="isBendahara"
-          @click="openModal()"
-          class="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white transition bg-brand-500 rounded-lg hover:bg-brand-600"
+    <PageHeader
+      title="Tahun Pelajaran"
+      description="Hanya satu tahun pelajaran yang aktif. Tahun aktif tampil di kepala halaman dan menjadi acuan beranda serta kartu pembayaran siswa."
+    >
+      <template v-if="isBendahara" #actions>
+        <button type="button" class="btn btn-primary" @click="openModal()">Tambah tahun pelajaran</button>
+      </template>
+    </PageHeader>
+    <YearReminder :show-link="false" class="mb-6" />
+
+    <section
+      v-if="!loading && !loadError && items.length"
+      class="panel mb-4 flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+      aria-labelledby="active-year-heading"
+    >
+      <div v-if="activeYear" class="min-w-0">
+        <h2 id="active-year-heading" class="font-sans text-sm font-semibold text-tinta-2">
+          Tahun pelajaran aktif
+        </h2>
+        <p class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span class="font-display text-2xl font-bold leading-none">{{ activeYear.name }}</span>
+          <StatusTag :status="true" />
+        </p>
+        <p class="mt-1 text-sm text-tinta-2">
+          {{ formatDate(activeYear.start_date) }} s.d. {{ formatDate(activeYear.end_date) }}
+        </p>
+      </div>
+      <div v-else class="min-w-0">
+        <h2 id="active-year-heading" class="font-sans font-semibold text-belum">
+          Belum ada tahun pelajaran aktif.
+        </h2>
+        <p class="mt-1 text-sm text-tinta-2">
+          {{ isBendahara ? 'Pilih "Jadikan aktif" pada tahun yang sedang berjalan.' : 'Bendahara perlu menandai tahun yang sedang berjalan sebagai tahun aktif.' }}
+        </p>
+      </div>
+    </section>
+
+    <section class="panel overflow-hidden">
+      <DataState v-if="loading" state="loading" message="Mengambil daftar tahun pelajaran." />
+      <DataState v-else-if="loadError" state="error" :message="loadError">
+        <button type="button" class="btn btn-secondary" @click="fetchItems">Coba lagi</button>
+      </DataState>
+      <DataState
+        v-else-if="items.length === 0"
+        state="empty"
+        title="Belum ada tahun pelajaran."
+        :message="isBendahara ? 'Tambahkan tahun pelajaran yang sedang berjalan dan tandai sebagai aktif. Kelas baru membutuhkan tahun pelajaran.' : 'Bendahara belum menambahkan tahun pelajaran.'"
+      >
+        <button v-if="isBendahara" type="button" class="btn btn-primary" @click="openModal()">Tambah tahun pelajaran</button>
+      </DataState>
+
+      <div v-else class="overflow-x-auto">
+        <table class="table-data">
+          <thead>
+            <tr>
+              <th scope="col">Tahun pelajaran</th>
+              <th scope="col">Mulai</th>
+              <th scope="col">Selesai</th>
+              <th scope="col">Status</th>
+              <th v-if="isBendahara" scope="col"><span class="sr-only">Aksi</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in items" :key="item.id">
+              <td class="font-display text-lg font-bold whitespace-nowrap">{{ item.name }}</td>
+              <td class="whitespace-nowrap">{{ formatDate(item.start_date) }}</td>
+              <td class="whitespace-nowrap">{{ formatDate(item.end_date) }}</td>
+              <td>
+                <StatusTag :status="Boolean(item.is_active)" />
+              </td>
+              <td v-if="isBendahara" class="text-right">
+                <div class="flex justify-end gap-1">
+                  <button
+                    v-if="!item.is_active"
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    :disabled="activatingId === item.id"
+                    @click="activateItem(item)"
+                  >
+                    {{ activatingId === item.id ? 'Mengaktifkan...' : 'Jadikan aktif' }}<span class="sr-only"> {{ item.name }}</span>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="openModal(item)">
+                    Ubah<span class="sr-only"> {{ item.name }}</span>
+                  </button>
+                  <button
+                    v-if="!item.is_active"
+                    type="button"
+                    class="btn btn-ghost btn-sm !text-galat"
+                    @click="deleteItem(item)"
+                  >
+                    Hapus<span class="sr-only"> {{ item.name }}</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <BaseModal
+      :open="showModal"
+      :title="form.id ? 'Ubah tahun pelajaran' : 'Tambah tahun pelajaran'"
+      @close="closeModal"
+    >
+      <form id="academic-year-form" class="space-y-4" @submit.prevent="saveItem">
+        <p
+          v-if="formError"
+          class="rounded-[var(--radius-kontrol)] bg-galat-muda px-3 py-2 text-sm font-semibold text-galat"
+          role="alert"
         >
-          Tambah Tahun
+          {{ formError }}
+        </p>
+
+        <div>
+          <label for="year-name" class="field-label">Nama tahun pelajaran</label>
+          <input
+            id="year-name"
+            v-model="form.name"
+            type="text"
+            required
+            maxlength="255"
+            class="field-input"
+            placeholder="Tahun awal/tahun akhir"
+            :aria-invalid="fieldError('name') ? 'true' : 'false'"
+            :aria-describedby="fieldError('name') ? 'year-name-error' : 'year-name-hint'"
+          />
+          <p v-if="fieldError('name')" id="year-name-error" class="field-error">{{ fieldError('name') }}</p>
+          <p v-else id="year-name-hint" class="field-hint">Tulis dengan garis miring, misalnya 2025/2026.</p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label for="year-start" class="field-label">Tanggal mulai</label>
+            <input
+              id="year-start"
+              v-model="form.start_date"
+              type="date"
+              required
+              class="field-input"
+              :aria-invalid="fieldError('start_date') ? 'true' : 'false'"
+              :aria-describedby="fieldError('start_date') ? 'year-start-error' : undefined"
+            />
+            <p v-if="fieldError('start_date')" id="year-start-error" class="field-error">{{ fieldError('start_date') }}</p>
+          </div>
+          <div>
+            <label for="year-end" class="field-label">Tanggal selesai</label>
+            <input
+              id="year-end"
+              v-model="form.end_date"
+              type="date"
+              required
+              class="field-input"
+              :aria-invalid="fieldError('end_date') ? 'true' : 'false'"
+              :aria-describedby="fieldError('end_date') ? 'year-end-error' : undefined"
+            />
+            <p v-if="fieldError('end_date')" id="year-end-error" class="field-error">{{ fieldError('end_date') }}</p>
+          </div>
+        </div>
+
+        <div>
+          <label class="flex min-h-11 items-center gap-3">
+            <input v-model="form.is_active" type="checkbox" class="field-check" aria-describedby="year-active-hint" />
+            <span class="font-medium">Jadikan tahun pelajaran aktif</span>
+          </label>
+          <p id="year-active-hint" class="field-hint">
+            {{ activeYear && activeYear.id !== form.id
+              ? `Tahun aktif saat ini ${activeYear.name}. Jika dicentang, ${activeYear.name} otomatis menjadi nonaktif.`
+              : 'Hanya satu tahun yang bisa aktif dalam satu waktu.' }}
+          </p>
+        </div>
+      </form>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="closeModal">Batal</button>
+        <button type="submit" form="academic-year-form" class="btn btn-primary" :disabled="saving">
+          {{ saving ? 'Menyimpan...' : 'Simpan tahun pelajaran' }}
         </button>
-      </div>
-
-      <div class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-        <div class="max-w-full overflow-x-auto">
-          <table class="min-w-full">
-            <thead>
-              <tr class="border-b border-gray-200 dark:border-gray-700">
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Nama Tahun</p>
-                </th>
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Tgl Mulai</p>
-                </th>
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Tgl Selesai</p>
-                </th>
-                <th class="px-5 py-3 text-left">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Status</p>
-                </th>
-                <th v-if="isBendahara" class="px-5 py-3 text-right">
-                  <p class="font-medium text-gray-500 text-theme-xs dark:text-gray-400">Aksi</p>
-                </th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-              <tr v-if="loading">
-                <td colspan="5" class="px-5 py-4 text-center">Loading...</td>
-              </tr>
-              <tr v-else-if="items.length === 0">
-                <td colspan="5" class="px-5 py-4 text-center">Tidak ada data.</td>
-              </tr>
-              <tr v-for="item in items" :key="item.id" class="border-t border-gray-100 dark:border-gray-800">
-                <td class="px-5 py-4">
-                  <span class="block font-medium text-gray-800 text-theme-sm dark:text-white/90">{{ item.name }}</span>
-                </td>
-                <td class="px-5 py-4">
-                  <p class="text-gray-500 text-theme-sm dark:text-gray-400">{{ item.start_date }}</p>
-                </td>
-                <td class="px-5 py-4">
-                  <p class="text-gray-500 text-theme-sm dark:text-gray-400">{{ item.end_date }}</p>
-                </td>
-                <td class="px-5 py-4">
-                  <span :class="[ 'rounded-full px-2 py-0.5 text-theme-xs font-medium', item.is_active ? 'bg-success-50 text-success-700' : 'bg-gray-100 text-gray-600' ]">
-                    {{ item.is_active ? 'Aktif' : 'Nonaktif' }}
-                  </span>
-                </td>
-                <td v-if="isBendahara" class="px-5 py-4 text-right">
-                  <button @click="openModal(item)" class="text-brand-500 hover:text-brand-600 mr-3 text-sm">Edit</button>
-                  <button @click="deleteItem(item.id)" class="text-error-500 hover:text-error-600 text-sm">Hapus</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Modal -->
-      <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50">
-        <div class="bg-white rounded-xl shadow-lg w-full max-w-md dark:bg-gray-800">
-          <form @submit.prevent="saveItem">
-            <div class="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
-              <h3 class="font-medium text-gray-800 dark:text-white/90">
-                {{ form.id ? 'Edit Tahun Pelajaran' : 'Tambah Tahun Pelajaran' }}
-              </h3>
-              <button type="button" @click="closeModal" class="text-gray-400 hover:text-gray-600">×</button>
-            </div>
-            <div class="p-5 space-y-4">
-              <div v-if="errorMessage" class="p-3 text-sm text-error-700 bg-error-50 rounded-lg">
-                {{ errorMessage }}
-              </div>
-              
-              <div>
-                <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Nama Tahun (contoh: 2024/2025)</label>
-                <input v-model="form.name" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-              </div>
-              
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Tgl Mulai</label>
-                  <input v-model="form.start_date" type="date" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-                </div>
-                <div>
-                  <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Tgl Selesai</label>
-                  <input v-model="form.end_date" type="date" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white" />
-                </div>
-              </div>
-              
-              <div>
-                <label class="flex items-center cursor-pointer">
-                  <input type="checkbox" v-model="form.is_active" class="w-5 h-5 border-gray-300 rounded text-brand-500 focus:ring-brand-500 dark:bg-gray-900 dark:border-gray-700" />
-                  <span class="ml-3 text-sm text-gray-700 dark:text-gray-300">Set sebagai Aktif</span>
-                </label>
-              </div>
-            </div>
-            <div class="flex justify-end p-5 border-t border-gray-200 dark:border-gray-700 gap-3">
-              <button type="button" @click="closeModal" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">Batal</button>
-              <button type="submit" :disabled="saving" class="px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50">
-                {{ saving ? 'Menyimpan...' : 'Simpan' }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+      </template>
+    </BaseModal>
   </admin-layout>
 </template>
 
@@ -121,44 +186,66 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
+import { useSchoolStore } from '@/stores/school'
+import { useNotice } from '@/composables/useNotice'
+import { errorMessage, formatDate } from '@/utils/format'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
+import PageHeader from '@/components/app/PageHeader.vue'
+import YearReminder from '@/components/app/YearReminder.vue'
+import DataState from '@/components/app/DataState.vue'
+import StatusTag from '@/components/app/StatusTag.vue'
+import BaseModal from '@/components/app/BaseModal.vue'
 
 const authStore = useAuthStore()
+const schoolStore = useSchoolStore()
+const notice = useNotice()
 const isBendahara = computed(() => authStore.hasRole('Bendahara'))
 
 const items = ref([])
 const loading = ref(true)
+const loadError = ref('')
 const showModal = ref(false)
 const saving = ref(false)
-const errorMessage = ref('')
+const formError = ref('')
+const fieldErrors = ref({})
+const activatingId = ref(null)
 
-const form = ref({
-  id: null,
-  name: '',
-  start_date: '',
-  end_date: '',
-  is_active: false
-})
+const activeYear = computed(() => items.value.find((item) => item.is_active) || null)
+
+/** API dates are serialized as ISO timestamps (app timezone UTC); date inputs need YYYY-MM-DD. */
+const toDateInput = (value) => (value ? String(value).substring(0, 10) : '')
+
+const emptyForm = () => ({ id: null, name: '', start_date: '', end_date: '', is_active: false })
+const form = ref(emptyForm())
+
+const fieldError = (key) => fieldErrors.value[key]?.[0] || ''
 
 const fetchItems = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     const response = await axios.get('/api/v1/academic-years')
     items.value = response.data.data
+    schoolStore.activeYear = activeYear.value
+    schoolStore.years = items.value
   } catch (error) {
-    console.error('Failed to fetch data', error)
+    loadError.value = errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
   } finally {
     loading.value = false
   }
 }
 
 const openModal = (item = null) => {
-  errorMessage.value = ''
-  if (item) {
-    form.value = { ...item, is_active: Boolean(item.is_active) }
-  } else {
-    form.value = { id: null, name: '', start_date: '', end_date: '', is_active: false }
-  }
+  formError.value = ''
+  fieldErrors.value = {}
+  form.value = item
+    ? {
+        ...item,
+        start_date: toDateInput(item.start_date),
+        end_date: toDateInput(item.end_date),
+        is_active: Boolean(item.is_active),
+      }
+    : emptyForm()
   showModal.value = true
 }
 
@@ -167,36 +254,82 @@ const closeModal = () => {
 }
 
 const saveItem = async () => {
+  const replacesActiveYear =
+    form.value.is_active && activeYear.value && activeYear.value.id !== form.value.id
+  if (replacesActiveYear) {
+    const confirmed = await notice.confirm({
+      title: 'Ganti tahun pelajaran aktif?',
+      message: `${form.value.name || 'Tahun ini'} akan menjadi tahun aktif dan ${activeYear.value.name} menjadi nonaktif.`,
+      confirmLabel: 'Simpan dan jadikan aktif',
+    })
+    if (!confirmed) return
+  }
+
   saving.value = true
-  errorMessage.value = ''
-  
+  formError.value = ''
+  fieldErrors.value = {}
+
   try {
     if (form.value.id) {
       await axios.put(`/api/v1/academic-years/${form.value.id}`, form.value)
     } else {
       await axios.post('/api/v1/academic-years', form.value)
     }
+    notice.success(`Tahun pelajaran ${form.value.name} tersimpan.`)
     closeModal()
     fetchItems()
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Terjadi kesalahan saat menyimpan'
+    fieldErrors.value = error.response?.data?.errors || {}
+    formError.value = errorMessage(error, 'Tahun pelajaran gagal disimpan.')
   } finally {
     saving.value = false
   }
 }
 
-const deleteItem = async (id) => {
-  if (!confirm('Apakah Anda yakin ingin menghapus data ini?')) return
-  
+const activateItem = async (item) => {
+  const confirmed = await notice.confirm({
+    title: `Jadikan ${item.name} tahun aktif?`,
+    message: activeYear.value
+      ? `${activeYear.value.name} akan menjadi nonaktif. Beranda, kepala halaman, dan kartu pembayaran akan memakai ${item.name}.`
+      : `Beranda, kepala halaman, dan kartu pembayaran akan memakai ${item.name}.`,
+    confirmLabel: 'Jadikan aktif',
+  })
+  if (!confirmed) return
+
+  activatingId.value = item.id
   try {
-    await axios.delete(`/api/v1/academic-years/${id}`)
+    await axios.put(`/api/v1/academic-years/${item.id}`, {
+      ...item,
+      start_date: toDateInput(item.start_date),
+      end_date: toDateInput(item.end_date),
+      is_active: true,
+    })
+    notice.success(`${item.name} sekarang tahun pelajaran aktif.`)
     fetchItems()
   } catch (error) {
-    alert(error.response?.data?.message || 'Gagal menghapus data')
+    notice.error(errorMessage(error, 'Tahun pelajaran gagal diaktifkan.'))
+  } finally {
+    activatingId.value = null
   }
 }
 
-onMounted(() => {
-  fetchItems()
-})
+const deleteItem = async (item) => {
+  const confirmed = await notice.confirm({
+    title: 'Hapus tahun pelajaran?',
+    message: `${item.name} akan dihapus. Tahun yang sudah dipakai di data kelas tidak bisa dihapus.`,
+    confirmLabel: 'Hapus tahun pelajaran',
+    danger: true,
+  })
+  if (!confirmed) return
+
+  try {
+    await axios.delete(`/api/v1/academic-years/${item.id}`)
+    notice.success(`Tahun pelajaran ${item.name} dihapus.`)
+    fetchItems()
+  } catch (error) {
+    notice.error(errorMessage(error, 'Tahun pelajaran gagal dihapus.'))
+  }
+}
+
+onMounted(fetchItems)
 </script>

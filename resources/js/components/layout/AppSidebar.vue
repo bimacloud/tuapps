@@ -1,350 +1,130 @@
 <template>
   <aside
-    :class="[
-      'fixed mt-16 flex flex-col md:mt-0 top-0 px-5 left-0 bg-white dark:bg-gray-900 dark:border-gray-800 text-gray-900 h-screen transition-all duration-300 ease-in-out z-99999 border-r border-gray-200',
-      {
-        'md:w-[290px]': isExpanded || isMobileOpen || isHovered,
-        'md:w-[90px]': !isExpanded && !isHovered,
-        'translate-x-0 w-[290px]': isMobileOpen,
-        '-translate-x-full': !isMobileOpen,
-        'md:translate-x-0': true,
-      },
-    ]"
-    @mouseenter="!isExpanded && (isHovered = true)"
-    @mouseleave="isHovered = false"
+    id="app-sidebar"
+    class="no-print fixed inset-y-0 left-0 z-40 flex w-[264px] flex-col bg-tinta text-krem transition-transform duration-150 lg:translate-x-0"
+    :class="isMobileOpen ? 'translate-x-0' : '-translate-x-full max-lg:invisible'"
+    aria-label="Menu utama"
+    @keydown.esc="isMobileOpen && toggleMobileSidebar()"
   >
-    <div
-      :class="[
-        'py-8 flex',
-        !isExpanded && !isHovered ? 'md:justify-center' : 'justify-start',
-      ]"
-    >
-      <router-link to="/">
-        <img
-          v-if="isExpanded || isHovered || isMobileOpen"
-          class="dark:hidden"
-          src="/images/logo/logo.svg"
-          alt="Logo"
-          width="150"
-          height="40"
-        />
-        <img
-          v-if="isExpanded || isHovered || isMobileOpen"
-          class="hidden dark:block"
-          src="/images/logo/logo-dark.svg"
-          alt="Logo"
-          width="150"
-          height="40"
-        />
-        <img
-          v-else
-          src="/images/logo/logo-icon.svg"
-          alt="Logo"
-          width="32"
-          height="32"
-        />
+    <div class="flex items-center justify-between gap-2 px-5 pb-5 pt-6">
+      <router-link to="/" class="rounded-[var(--radius-kontrol)]" @click="closeOnMobile">
+        <SchoolMark light />
       </router-link>
+      <button
+        type="button"
+        class="btn text-krem hover:bg-tinta-3 lg:hidden"
+        aria-label="Tutup menu"
+        @click="toggleMobileSidebar"
+      >
+        Tutup
+      </button>
     </div>
-    <div
-      class="flex flex-col overflow-y-auto duration-300 ease-linear no-scrollbar"
-    >
-      <nav class="mb-6">
-        <div class="flex flex-col gap-4">
-          <div v-for="(menuGroup, groupIndex) in menuGroups" :key="groupIndex">
-            <h2
-              :class="[
-                'mb-4 text-xs uppercase flex leading-[20px] text-gray-400',
-                !isExpanded && !isHovered
-                  ? 'md:justify-center'
-                  : 'justify-start',
-              ]"
-            >
-              <template v-if="isExpanded || isHovered || isMobileOpen">
-                {{ menuGroup.title }}
-              </template>
-              <HorizontalDots v-else />
-            </h2>
-            <ul class="flex flex-col gap-4">
-              <li v-for="(item, index) in menuGroup.items" :key="item.name">
-                <button
-                  v-if="item.subItems"
-                  @click="toggleSubmenu(groupIndex, index)"
-                  :class="[
-                    'menu-item group w-full',
-                    {
-                      'menu-item-active': isSubmenuOpen(groupIndex, index),
-                      'menu-item-inactive': !isSubmenuOpen(groupIndex, index),
-                    },
-                    !isExpanded && !isHovered
-                      ? 'md:justify-center'
-                      : 'md:justify-start',
-                  ]"
-                >
-                  <span
-                    :class="[
-                      isSubmenuOpen(groupIndex, index)
-                        ? 'menu-item-icon-active'
-                        : 'menu-item-icon-inactive',
-                    ]"
-                  >
-                    <component :is="item.icon" />
-                  </span>
-                  <span
-                    v-if="isExpanded || isHovered || isMobileOpen"
-                    class="menu-item-text"
-                    >{{ item.name }}</span
-                  >
-                  <ChevronDownIcon
-                    v-if="isExpanded || isHovered || isMobileOpen"
-                    :class="[
-                      'ml-auto w-5 h-5 transition-transform duration-200',
-                      {
-                        'rotate-180 text-brand-500': isSubmenuOpen(
-                          groupIndex,
-                          index
-                        ),
-                      },
-                    ]"
-                  />
-                </button>
-                <router-link
-                  v-else-if="item.path"
-                  :to="item.path"
-                  :class="[
-                    'menu-item group',
-                    {
-                      'menu-item-active': isActive(item.path),
-                      'menu-item-inactive': !isActive(item.path),
-                    },
-                  ]"
-                >
-                  <span
-                    :class="[
-                      isActive(item.path)
-                        ? 'menu-item-icon-active'
-                        : 'menu-item-icon-inactive',
-                    ]"
-                  >
-                    <component :is="item.icon" />
-                  </span>
-                  <span
-                    v-if="isExpanded || isHovered || isMobileOpen"
-                    class="menu-item-text"
-                    >{{ item.name }}</span
-                  >
-                </router-link>
-                <transition
-                  @enter="startTransition"
-                  @after-enter="endTransition"
-                  @before-leave="startTransition"
-                  @after-leave="endTransition"
-                >
-                  <div
-                    v-show="
-                      isSubmenuOpen(groupIndex, index) &&
-                      (isExpanded || isHovered || isMobileOpen)
-                    "
-                  >
-                    <ul class="mt-2 space-y-1 ml-9">
-                      <li v-for="subItem in item.subItems" :key="subItem.name">
-                        <router-link
-                          :to="subItem.path"
-                          :class="[
-                            'menu-dropdown-item',
-                            {
-                              'menu-dropdown-item-active': isActive(
-                                subItem.path
-                              ),
-                              'menu-dropdown-item-inactive': !isActive(
-                                subItem.path
-                              ),
-                            },
-                          ]"
-                        >
-                          {{ subItem.name }}
-                          <span class="flex items-center gap-1 ml-auto">
-                            <span
-                              v-if="subItem.new"
-                              :class="[
-                                'menu-dropdown-badge',
-                                {
-                                  'menu-dropdown-badge-active': isActive(
-                                    subItem.path
-                                  ),
-                                  'menu-dropdown-badge-inactive': !isActive(
-                                    subItem.path
-                                  ),
-                                },
-                              ]"
-                            >
-                              new
-                            </span>
-                            <span
-                              v-if="subItem.pro"
-                              :class="[
-                                'menu-dropdown-badge',
-                                {
-                                  'menu-dropdown-badge-active': isActive(
-                                    subItem.path
-                                  ),
-                                  'menu-dropdown-badge-inactive': !isActive(
-                                    subItem.path
-                                  ),
-                                },
-                              ]"
-                            >
-                              pro
-                            </span>
-                          </span>
-                        </router-link>
-                      </li>
-                    </ul>
-                  </div>
-                </transition>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </nav>
 
-    </div>
+    <nav class="custom-scrollbar flex-1 overflow-y-auto pb-6">
+      <div v-for="group in menuGroups" :key="group.title" class="mt-4 first:mt-0">
+        <p class="px-5 pb-1.5 text-[0.8rem] font-semibold text-pasir">{{ group.title }}</p>
+        <ul>
+          <li v-for="item in group.items" :key="item.path" class="pr-4">
+            <router-link
+              :to="item.path"
+              class="flex min-h-11 items-center gap-3 py-2 pl-5 text-[0.95rem] font-medium transition-colors"
+              :class="
+                isActive(item.path)
+                  ? 'pita bg-amber font-semibold text-tinta'
+                  : 'text-krem hover:bg-tinta-3'
+              "
+              :aria-current="isActive(item.path) ? 'page' : undefined"
+              @click="closeOnMobile"
+            >
+              <NavIcon :name="item.icon" />
+              <span>{{ item.name }}</span>
+            </router-link>
+          </li>
+        </ul>
+      </div>
+    </nav>
   </aside>
 </template>
 
-<script setup>
-import { ref, computed } from "vue";
-import { useRoute } from "vue-router";
-import { useAuthStore } from "@/stores/auth";
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { useSidebar } from '@/composables/useSidebar'
+import SchoolMark from '@/components/app/SchoolMark.vue'
+import NavIcon from './NavIcon.vue'
 
-import {
-  GridIcon,
-  CalenderIcon,
-  UserCircleIcon,
-  ChatIcon,
-  MailIcon,
-  DocsIcon,
-  PieChartIcon,
-  ChevronDownIcon,
-  HorizontalDots,
-  PageIcon,
-  TableIcon,
-  ListIcon,
-  PlugInIcon,
-  SettingsIcon,
-} from "../../icons";
-import BoxCubeIcon from "@/icons/BoxCubeIcon.vue";
-import { useSidebar } from "@/composables/useSidebar";
+type NavItem = { name: string; path: string; icon: InstanceType<typeof NavIcon>['$props']['name'] }
 
-const route = useRoute();
-const authStore = useAuthStore();
+const route = useRoute()
+const authStore = useAuthStore()
+const { isMobileOpen, toggleMobileSidebar } = useSidebar()
 
-const { isExpanded, isMobileOpen, isHovered, openSubmenu } = useSidebar();
-
+/** Flat groups (no collapsible submenus) so every page is one click and one Tab stop away. */
 const menuGroups = computed(() => {
-  const isKepsek = authStore.hasRole('Kepala Sekolah');
-  const isBendahara = authStore.hasRole('Bendahara');
+  const isKepsek = authStore.hasRole('Kepala Sekolah')
+  const isBendahara = authStore.hasRole('Bendahara')
+  const groups: { title: string; items: NavItem[] }[] = []
 
-  const items = [];
-
-  if (isKepsek || isBendahara) {
-    items.push({
-      icon: GridIcon,
-      name: "Dashboard",
-      path: "/",
-    });
+  const harian: NavItem[] = [{ name: 'Beranda', path: '/', icon: 'beranda' }]
+  if (isBendahara) {
+    harian.push({ name: 'Kasir', path: '/kasir', icon: 'kasir' })
+    harian.push({ name: 'Riwayat Pembayaran', path: '/pembayaran', icon: 'riwayat' })
   }
+  if (isKepsek) {
+    harian.push({ name: 'Persetujuan', path: '/approvals', icon: 'persetujuan' })
+  }
+  harian.push({ name: 'Laporan', path: '/reports/harian', icon: 'laporan' })
+  groups.push({ title: 'Harian', items: harian })
 
   if (isBendahara) {
-    items.push({ icon: PageIcon, name: "Tagihan", path: "/invoices" });
-    items.push({ icon: PlugInIcon, name: "Pembayaran", path: "/pembayaran" });
-    items.push({
-      icon: ListIcon,
-      name: "Pengaturan Tarif",
-      subItems: [
-        { name: 'Jenis Pembayaran', path: '/billing/payment-types' },
-        { name: 'Tarif Pembayaran', path: '/billing/payment-rates' },
+    groups.push({
+      title: 'Tagihan dan tarif',
+      items: [
+        { name: 'Tagihan', path: '/invoices', icon: 'tagihan' },
+        { name: 'Kartu Pembayaran', path: '/kartu-pembayaran', icon: 'kartu' },
+        { name: 'Jenis Pembayaran', path: '/billing/payment-types', icon: 'jenis' },
+        { name: 'Tarif Pembayaran', path: '/billing/payment-rates', icon: 'tarif' },
       ],
-    });
+    })
   }
 
   if (isKepsek || isBendahara) {
-    items.push({ icon: DocsIcon, name: "Laporan", path: "/reports/harian" });
-  }
-
-  if (isKepsek) {
-    items.push({ icon: PieChartIcon, name: "Monitoring", path: "/monitoring" });
-    items.push({ icon: ListIcon, name: "Persetujuan", path: "/approvals" });
-  }
-
-  if (isKepsek || isBendahara) {
-    items.push({
-      icon: BoxCubeIcon,
-      name: "Master Data",
-      subItems: [
-        { name: 'Tahun Pelajaran', path: '/master/academic-years' },
-        { name: 'Jurusan', path: '/master/majors' },
-        { name: 'Kelas', path: '/master/classes' },
-        { name: 'Siswa', path: '/master/students' },
+    groups.push({
+      title: 'Data sekolah',
+      items: [
+        { name: 'Siswa', path: '/master/students', icon: 'siswa' },
+        { name: 'Kelas', path: '/master/classes', icon: 'kelas' },
+        { name: 'Jurusan', path: '/master/majors', icon: 'jurusan' },
+        { name: 'Tahun Pelajaran', path: '/master/academic-years', icon: 'tahun' },
       ],
-    });
+    })
   }
 
+  const sistem: NavItem[] = []
   if (isKepsek) {
-    items.push({ icon: TableIcon, name: "Audit Log", path: "/audit-logs" });
+    sistem.push({ name: 'Audit Log', path: '/audit-logs', icon: 'audit' })
   }
-
-  if (isBendahara) {
-    items.push({ icon: CalenderIcon, name: "Kasir", path: "/kasir" });
-  }
-
   if (isKepsek || isBendahara) {
-    items.push({ icon: SettingsIcon, name: "Pengaturan", path: "/settings" });
+    sistem.push({ name: 'Pengaturan', path: '/settings', icon: 'pengaturan' })
+  }
+  if (sistem.length) {
+    groups.push({ title: 'Sistem', items: sistem })
   }
 
-  return [
-    {
-      title: "Menu Utama",
-      items,
-    },
-  ];
-});
+  return groups
+})
 
-const isActive = (path) => route.path === path;
+const isActive = (path: string) => {
+  if (path === '/') return route.path === '/'
+  if (path.startsWith('/reports')) return route.path.startsWith('/reports')
+  if (path === '/invoices') return route.path === '/invoices' || route.path.startsWith('/billing/invoices')
+  if (path === '/master/students') return route.path === path || route.path.startsWith('/siswa/')
+  if (path === '/pembayaran') return route.path.startsWith('/pembayaran')
+  return route.path === path
+}
 
-const toggleSubmenu = (groupIndex, itemIndex) => {
-  const key = `${groupIndex}-${itemIndex}`;
-  openSubmenu.value = openSubmenu.value === key ? null : key;
-};
-
-const isAnySubmenuRouteActive = computed(() => {
-  return menuGroups.value.some((group) =>
-    group.items.some(
-      (item) =>
-        item.subItems && item.subItems.some((subItem) => isActive(subItem.path))
-    )
-  );
-});
-
-const isSubmenuOpen = (groupIndex, itemIndex) => {
-  const key = `${groupIndex}-${itemIndex}`;
-  return (
-    openSubmenu.value === key ||
-    (isAnySubmenuRouteActive.value &&
-      menuGroups.value[groupIndex].items[itemIndex].subItems?.some((subItem) =>
-        isActive(subItem.path)
-      ))
-  );
-};
-
-const startTransition = (el) => {
-  el.style.height = "auto";
-  const height = el.scrollHeight;
-  el.style.height = "0px";
-  el.offsetHeight; // force reflow
-  el.style.height = height + "px";
-};
-
-const endTransition = (el) => {
-  el.style.height = "";
-};
+const closeOnMobile = () => {
+  if (isMobileOpen.value) toggleMobileSidebar()
+}
 </script>

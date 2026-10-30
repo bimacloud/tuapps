@@ -1,10 +1,4 @@
 import './assets/main.css'
-// Import Swiper styles
-import 'swiper/css'
-import 'swiper/css/navigation'
-import 'swiper/css/pagination'
-import 'jsvectormap/dist/jsvectormap.css'
-import 'flatpickr/dist/flatpickr.css'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
@@ -37,5 +31,10 @@ axios.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// A preloaded chunk from an older build failed to load: reload once to pick up the new build.
+window.addEventListener('vite:preloadError', () => {
+  window.location.reload()
+})
 
 app.mount('#app')

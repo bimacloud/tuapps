@@ -1,122 +1,207 @@
-<script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
-import axios from 'axios'
-
-const logs = ref<any[]>([])
-const loading = ref(true)
-
-// Pagination
-const currentPage = ref(1)
-const lastPage = ref(1)
-
-// Filters
-const filterModule = ref('')
-const filterDate = ref('')
-
-const fetchData = async (page = 1) => {
-  loading.value = true
-  try {
-    const res = await axios.get('/api/v1/audit-logs', {
-      params: {
-        page,
-        module: filterModule.value,
-        date: filterDate.value
-      }
-    })
-    logs.value = res.data.data
-    currentPage.value = res.data.current_page
-    lastPage.value = res.data.last_page
-  } catch (error) {
-    console.error('Error fetching audit logs', error)
-  } finally {
-    loading.value = false
-  }
-}
-
-watch([filterModule, filterDate], () => {
-  fetchData(1)
-})
-
-const formatDate = (dateString: string) => {
-  if (!dateString) return '-'
-  return new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(dateString))
-}
-
-onMounted(() => {
-  fetchData()
-})
-</script>
-
 <template>
-  <div>
-    <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <h2 class="text-title-md2 font-semibold text-black dark:text-white">Audit Log Sistem</h2>
-    </div>
+  <AdminLayout>
+    <PageHeader
+      title="Audit Log"
+      description="Jejak tindakan penting di aplikasi: pembayaran, buka dan tutup kas, serta keputusan persetujuan."
+    />
 
-    <div class="rounded-sm border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark">
-      <div class="p-4 md:p-6 xl:p-7.5">
-        
-        <!-- Filters -->
-        <div class="flex flex-col sm:flex-row gap-4 mb-6">
-          <div class="w-full sm:w-1/3">
-            <select v-model="filterModule" class="w-full rounded border-[1.5px] border-stroke bg-transparent py-2 px-4 outline-none transition focus:border-primary active:border-primary dark:border-form-strokedark dark:bg-form-input">
-              <option value="">Semua Modul</option>
-              <option value="PAYMENT">Pembayaran</option>
-              <option value="CASHIER_SESSION">Sesi Kasir</option>
-              <option value="APPROVAL">Persetujuan</option>
-              <option value="AUTH">Otentikasi</option>
-            </select>
-          </div>
-          <div class="w-full sm:w-1/3">
-            <input v-model="filterDate" type="date" class="w-full rounded border-[1.5px] border-stroke bg-transparent py-2 px-4 outline-none transition focus:border-primary active:border-primary dark:border-form-strokedark dark:bg-form-input" />
-          </div>
-        </div>
+    <form class="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-[repeat(2,minmax(0,16rem))_auto] sm:items-end" @submit.prevent>
+      <div>
+        <label for="filter-module" class="field-label">Modul</label>
+        <select id="filter-module" v-model="filterModule" class="field-input">
+          <option value="">Semua modul</option>
+          <option v-for="(label, value) in moduleLabels" :key="value" :value="value">{{ label }}</option>
+        </select>
+      </div>
+      <div>
+        <label for="filter-date" class="field-label">Tanggal</label>
+        <input id="filter-date" v-model="filterDate" type="date" class="field-input" />
+      </div>
+      <div v-if="hasFilters">
+        <button type="button" class="btn btn-ghost" @click="clearFilters">Hapus filter</button>
+      </div>
+    </form>
 
+    <section class="panel overflow-hidden" aria-label="Daftar catatan aktivitas">
+      <DataState v-if="loading" state="loading" message="Mengambil catatan aktivitas." />
+      <DataState v-else-if="loadError" state="error" :message="loadError">
+        <button type="button" class="btn btn-secondary" @click="fetchData(currentPage)">Coba lagi</button>
+      </DataState>
+      <DataState
+        v-else-if="logs.length === 0"
+        state="empty"
+        :title="hasFilters ? 'Tidak ada catatan untuk filter ini.' : 'Belum ada catatan aktivitas.'"
+        :message="hasFilters ? 'Ganti modul atau tanggal, atau hapus filter untuk melihat semua catatan.' : 'Catatan muncul setelah ada pembayaran, buka atau tutup kas, atau keputusan persetujuan.'"
+      >
+        <button v-if="hasFilters" type="button" class="btn btn-secondary" @click="clearFilters">Hapus filter</button>
+      </DataState>
+
+      <template v-else>
         <div class="overflow-x-auto">
-          <table class="w-full table-auto text-sm">
+          <table class="table-data">
             <thead>
-              <tr class="bg-gray-2 text-left dark:bg-meta-4">
-                <th class="py-4 px-4 font-medium text-black dark:text-white xl:px-6">Waktu</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Pengguna</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Modul</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Aksi</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white w-1/3">Keterangan</th>
+              <tr>
+                <th scope="col">Waktu</th>
+                <th scope="col">Pengguna</th>
+                <th scope="col">Tindakan</th>
+                <th scope="col">Sasaran</th>
+                <th scope="col" class="min-w-[18rem]">Keterangan</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading">
-                <td colspan="5" class="text-center py-8">Memuat data...</td>
-              </tr>
-              <tr v-else-if="logs.length === 0">
-                <td colspan="5" class="text-center py-8 text-gray-500">Tidak ada log ditemukan.</td>
-              </tr>
-              <tr v-else v-for="log in logs" :key="log.id" class="border-b border-stroke dark:border-strokedark hover:bg-gray-50 dark:hover:bg-meta-4/20">
-                <td class="py-4 px-4 xl:px-6">{{ formatDate(log.created_at) }}</td>
-                <td class="py-4 px-4 font-medium">{{ log.user?.name || 'Sistem' }}</td>
-                <td class="py-4 px-4">
-                  <span class="inline-flex rounded bg-primary/10 py-1 px-2 text-xs font-medium text-primary">
-                    {{ log.module }}
-                  </span>
+              <tr v-for="log in logs" :key="log.id">
+                <td class="whitespace-nowrap tabular-nums">{{ formatDateTime(log.created_at) }}</td>
+                <td class="whitespace-nowrap font-semibold">{{ log.user?.name || 'Sistem' }}</td>
+                <td>
+                  <span class="block whitespace-nowrap font-semibold">{{ actionLabel(log.action) }}</span>
+                  <span class="block text-sm text-tinta-2">{{ moduleLabels[log.module] || log.module }}</span>
                 </td>
-                <td class="py-4 px-4">{{ log.action }}</td>
-                <td class="py-4 px-4 text-gray-600 dark:text-gray-400">{{ log.description }}</td>
+                <td class="whitespace-nowrap">{{ targetLabel(log) }}</td>
+                <td>
+                  <p>{{ log.description || '-' }}</p>
+                  <details v-if="hasDetails(log)" class="mt-1">
+                    <summary class="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-bata-tua">
+                      Lihat rincian
+                    </summary>
+                    <dl class="mt-1 space-y-2 text-sm">
+                      <div v-if="log.old_data">
+                        <dt class="font-semibold">Data sebelum</dt>
+                        <dd><pre class="max-w-[32rem] overflow-x-auto whitespace-pre-wrap break-all rounded-[var(--radius-kontrol)] bg-krem px-3 py-2 text-[0.8rem]">{{ formatPayload(log.old_data) }}</pre></dd>
+                      </div>
+                      <div v-if="log.new_data">
+                        <dt class="font-semibold">Data sesudah</dt>
+                        <dd><pre class="max-w-[32rem] overflow-x-auto whitespace-pre-wrap break-all rounded-[var(--radius-kontrol)] bg-krem px-3 py-2 text-[0.8rem]">{{ formatPayload(log.new_data) }}</pre></dd>
+                      </div>
+                      <div v-if="log.ip_address">
+                        <dt class="font-semibold">Alamat IP</dt>
+                        <dd class="text-tinta-2">{{ log.ip_address }}</dd>
+                      </div>
+                      <div v-if="log.user_agent">
+                        <dt class="font-semibold">Perangkat</dt>
+                        <dd class="max-w-[32rem] break-words text-tinta-2">{{ log.user_agent }}</dd>
+                      </div>
+                    </dl>
+                  </details>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Pagination -->
-        <div v-if="lastPage > 1" class="mt-6 flex justify-end gap-2">
-          <button @click="fetchData(currentPage - 1)" :disabled="currentPage === 1" class="rounded px-3 py-1 text-sm bg-gray-2 dark:bg-meta-4 hover:bg-gray-3 disabled:opacity-50">
-            &larr; Prev
-          </button>
-          <span class="px-3 py-1 text-sm font-medium">Page {{ currentPage }} of {{ lastPage }}</span>
-          <button @click="fetchData(currentPage + 1)" :disabled="currentPage === lastPage" class="rounded px-3 py-1 text-sm bg-gray-2 dark:bg-meta-4 hover:bg-gray-3 disabled:opacity-50">
-            Next &rarr;
-          </button>
-        </div>
-
-      </div>
-    </div>
-  </div>
+        <nav
+          v-if="lastPage > 1"
+          class="flex flex-wrap items-center justify-between gap-3 border-t border-garis px-4 py-3"
+          aria-label="Halaman audit log"
+        >
+          <p class="text-sm text-tinta-2">
+            Halaman {{ currentPage }} dari {{ lastPage }}<span v-if="total">, {{ total }} catatan</span>
+          </p>
+          <div class="flex gap-2">
+            <button type="button" class="btn btn-secondary" :disabled="currentPage <= 1" @click="fetchData(currentPage - 1)">
+              Sebelumnya
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="currentPage >= lastPage" @click="fetchData(currentPage + 1)">
+              Berikutnya
+            </button>
+          </div>
+        </nav>
+      </template>
+    </section>
+  </AdminLayout>
 </template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import axios from 'axios'
+import { errorMessage, formatDateTime } from '@/utils/format'
+import AdminLayout from '@/components/layout/AdminLayout.vue'
+import PageHeader from '@/components/app/PageHeader.vue'
+import DataState from '@/components/app/DataState.vue'
+
+type AuditLog = Record<string, any>
+
+const moduleLabels: Record<string, string> = {
+  PAYMENT: 'Pembayaran',
+  CASHIER_SESSION: 'Sesi kasir',
+  APPROVAL: 'Persetujuan',
+  AUTH: 'Login',
+}
+
+const actionLabels: Record<string, string> = {
+  PAYMENT_CREATED: 'Pembayaran dicatat',
+  ONLINE_PAYMENT_SUCCESS: 'Pembayaran online berhasil',
+  ONLINE_PAYMENT_REFUND_REQUIRED: 'Pembayaran online perlu dikembalikan',
+  CASHIER_OPEN: 'Kas dibuka',
+  CASHIER_CLOSE: 'Kas ditutup',
+  APPROVAL_REQUESTED: 'Persetujuan diajukan',
+  APPROVAL_APPROVED: 'Permintaan disetujui',
+  APPROVAL_REJECTED: 'Permintaan ditolak',
+}
+
+const modelLabels: Record<string, string> = {
+  Payment: 'Pembayaran',
+  ApprovalRequest: 'Permintaan',
+  CashierSession: 'Sesi kasir',
+  Invoice: 'Tagihan',
+  User: 'Pengguna',
+}
+
+const logs = ref<AuditLog[]>([])
+const loading = ref(true)
+const loadError = ref('')
+const currentPage = ref(1)
+const lastPage = ref(1)
+const total = ref(0)
+
+const filterModule = ref('')
+const filterDate = ref('')
+const hasFilters = computed(() => Boolean(filterModule.value || filterDate.value))
+
+const actionLabel = (action: string) => actionLabels[action] ?? String(action || '-').replace(/_/g, ' ').toLowerCase()
+
+const targetLabel = (log: AuditLog) => {
+  if (!log.model_type) return '-'
+  const basename = String(log.model_type).split('\\').pop() || ''
+  const label = modelLabels[basename] ?? basename
+  return log.model_id ? `${label} #${log.model_id}` : label
+}
+
+const hasDetails = (log: AuditLog) => Boolean(log.old_data || log.new_data || log.ip_address || log.user_agent)
+
+const formatPayload = (payload: unknown) =>
+  typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)
+
+const fetchData = async (page = 1) => {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const response = await axios.get('/api/v1/audit-logs', {
+      params: {
+        page,
+        module: filterModule.value,
+        date: filterDate.value,
+      },
+    })
+    logs.value = response.data.data || []
+    currentPage.value = response.data.current_page || page
+    lastPage.value = response.data.last_page || 1
+    total.value = response.data.total || 0
+  } catch (error: any) {
+    loadError.value =
+      error?.response?.status === 403
+        ? 'Audit log hanya bisa dibuka akun Kepala Sekolah.'
+        : errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
+  } finally {
+    loading.value = false
+  }
+}
+
+const clearFilters = () => {
+  filterModule.value = ''
+  filterDate.value = ''
+}
+
+watch([filterModule, filterDate], () => fetchData(1))
+
+onMounted(() => fetchData())
+</script>
