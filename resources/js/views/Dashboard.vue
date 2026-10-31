@@ -239,8 +239,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import axios from 'axios'
+
+/** Charts only appear for Kepala Sekolah, so the charting library is fetched only when one renders. */
+const apexchart = defineAsyncComponent(() => import('vue3-apexcharts'))
 import { useAuthStore } from '@/stores/auth'
 import { formatRupiah, formatAngka, formatDateTime, errorMessage } from '@/utils/format'
 import AdminLayout from '@/components/layout/AdminLayout.vue'

@@ -3,16 +3,44 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use App\Models\CashierSession;
 use App\Models\Payment;
 use App\Services\AuditService;
 use Carbon\Carbon;
 use Exception;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class CashierSessionController extends Controller
 {
+    /**
+     * History of cashier sessions, newest first, with the recorded difference of closed ones.
+     */
+    public function index(Request $request)
+    {
+        $validated = $request->validate([
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date|after_or_equal:date_from',
+            'only_difference' => 'nullable|boolean',
+        ]);
+
+        $sessions = CashierSession::with('user:id,name')
+            ->when($validated['date_from'] ?? null, fn ($query, $date) => $query->whereDate('start_time', '>=', $date))
+            ->when($validated['date_to'] ?? null, fn ($query, $date) => $query->whereDate('start_time', '<=', $date))
+            ->when($request->boolean('only_difference'), fn ($query) => $query->where('status', 'CLOSED')->where('difference', '!=', 0))
+            ->orderByDesc('start_time')
+            ->orderByDesc('id')
+            ->paginate(20);
+
+        $sessions->getCollection()->transform(function (CashierSession $session) {
+            $session->setAttribute('cash_received', $this->cashPaymentsTotal($session));
+
+            return $session;
+        });
+
+        return response()->json($sessions);
+    }
+
     /**
      * Get the current active session for the authenticated user.
      */
@@ -23,7 +51,7 @@ class CashierSessionController extends Controller
             ->first();
 
         return response()->json([
-            'data' => $session
+            'data' => $session,
         ]);
     }
 
@@ -33,7 +61,7 @@ class CashierSessionController extends Controller
     public function open(Request $request)
     {
         $request->validate([
-            'starting_balance' => 'required|numeric|min:0'
+            'starting_balance' => 'required|numeric|min:0',
         ]);
 
         // Check if already open
@@ -43,7 +71,7 @@ class CashierSessionController extends Controller
 
         if ($activeSession) {
             return response()->json([
-                'message' => 'Anda masih memiliki sesi kasir yang aktif.'
+                'message' => 'Anda masih memiliki sesi kasir yang aktif.',
             ], 422);
         }
 
@@ -51,13 +79,13 @@ class CashierSessionController extends Controller
             'user_id' => auth()->id(),
             'start_time' => Carbon::now(),
             'starting_balance' => $request->starting_balance,
-            'status' => 'OPEN'
+            'status' => 'OPEN',
         ]);
 
         AuditService::log(
             'CASHIER_OPEN',
             'CASHIER_SESSION',
-            'Membuka sesi kasir dengan saldo awal ' . number_format($request->starting_balance, 0, ',', '.'),
+            'Membuka sesi kasir dengan saldo awal '.number_format($request->starting_balance, 0, ',', '.'),
             $session,
             null,
             $session->toArray()
@@ -65,7 +93,7 @@ class CashierSessionController extends Controller
 
         return response()->json([
             'message' => 'Sesi kasir berhasil dibuka',
-            'data' => $session
+            'data' => $session,
         ], 201);
     }
 
@@ -86,8 +114,8 @@ class CashierSessionController extends Controller
             'data' => [
                 'session' => $session,
                 'total_cash_payments' => $cashPayments,
-                'expected_balance' => $expectedCash
-            ]
+                'expected_balance' => $expectedCash,
+            ],
         ]);
     }
 
@@ -98,7 +126,7 @@ class CashierSessionController extends Controller
     {
         $request->validate([
             'actual_balance' => 'required|numeric|min:0',
-            'notes' => 'nullable|string'
+            'notes' => 'nullable|string',
         ]);
 
         $session = CashierSession::where('user_id', auth()->id())
@@ -113,27 +141,27 @@ class CashierSessionController extends Controller
 
         if ($difference != 0 && empty($request->notes)) {
             return response()->json([
-                'message' => 'Terdapat selisih kas. Anda wajib mengisi catatan.'
+                'message' => 'Terdapat selisih kas. Anda wajib mengisi catatan.',
             ], 422);
         }
 
         DB::beginTransaction();
         try {
             $oldData = $session->toArray();
-            
+
             $session->update([
                 'end_time' => Carbon::now(),
                 'expected_balance' => $expectedCash,
                 'actual_balance' => $actualCash,
                 'difference' => $difference,
                 'notes' => $request->notes,
-                'status' => 'CLOSED'
+                'status' => 'CLOSED',
             ]);
 
             AuditService::log(
                 'CASHIER_CLOSE',
                 'CASHIER_SESSION',
-                'Menutup sesi kasir. Selisih: ' . number_format($difference, 0, ',', '.'),
+                'Menutup sesi kasir. Selisih: '.number_format($difference, 0, ',', '.'),
                 $session,
                 $oldData,
                 $session->fresh()->toArray()
@@ -143,12 +171,13 @@ class CashierSessionController extends Controller
 
             return response()->json([
                 'message' => 'Sesi kasir berhasil ditutup',
-                'data' => $session
+                'data' => $session,
             ]);
         } catch (Exception $e) {
             DB::rollBack();
+
             return response()->json([
-                'message' => 'Gagal menutup sesi: ' . $e->getMessage()
+                'message' => 'Gagal menutup sesi: '.$e->getMessage(),
             ], 500);
         }
     }

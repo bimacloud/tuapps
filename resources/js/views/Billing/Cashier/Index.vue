@@ -22,16 +22,22 @@
             <span class="font-semibold text-tinta tabular-nums">{{ formatRupiah(activeSession.starting_balance) }}</span>
           </p>
         </div>
-        <button type="button" class="btn btn-secondary" :disabled="isLoadingSummary" @click="fetchSessionSummary">
-          {{ isLoadingSummary ? 'Menghitung kas...' : 'Tutup kas' }}
-        </button>
+        <div class="flex flex-wrap gap-2">
+          <router-link to="/kasir/riwayat" class="btn btn-ghost">Riwayat kas</router-link>
+          <button type="button" class="btn btn-secondary" :disabled="isLoadingSummary" @click="fetchSessionSummary">
+            {{ isLoadingSummary ? 'Menghitung kas...' : 'Tutup kas' }}
+          </button>
+        </div>
       </template>
       <template v-else>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <StatusTag status="CLOSED" />
           <p class="font-medium text-tinta">Pembayaran baru bisa dicatat setelah kas dibuka.</p>
         </div>
-        <button type="button" class="btn btn-primary" @click="openSessionModal">Buka kas</button>
+        <div class="flex flex-wrap gap-2">
+          <router-link to="/kasir/riwayat" class="btn btn-ghost">Riwayat kas</router-link>
+          <button type="button" class="btn btn-primary" @click="openSessionModal">Buka kas</button>
+        </div>
       </template>
     </section>
 
@@ -821,9 +827,14 @@ const closeSession = async () => {
       actual_balance: actualBalance.value,
       notes: closeNotes.value,
     })
+    const difference = closeDifference.value
     showCloseSessionModal.value = false
     activeSession.value = null
-    notice.success('Kas ditutup.')
+    notice.success(
+      difference === 0
+        ? 'Kas ditutup, uang cocok. Tercatat di Riwayat Kas.'
+        : `Kas ditutup dengan selisih ${difference > 0 ? 'lebih' : 'kurang'} ${formatRupiah(Math.abs(difference))}. Tercatat di Riwayat Kas beserta catatannya.`,
+    )
     resetKasir()
   } catch (err: any) {
     sessionError.value = errorMessage(err, 'Kas gagal ditutup. Coba lagi.')

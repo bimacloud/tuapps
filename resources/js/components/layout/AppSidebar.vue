@@ -71,6 +71,7 @@ const menuGroups = computed(() => {
     harian.push({ name: 'Kasir', path: '/kasir', icon: 'kasir' })
     harian.push({ name: 'Riwayat Pembayaran', path: '/pembayaran', icon: 'riwayat' })
   }
+  harian.push({ name: 'Riwayat Kas', path: '/kasir/riwayat', icon: 'kas' })
   if (isKepsek) {
     harian.push({ name: 'Persetujuan', path: '/approvals', icon: 'persetujuan' })
   }

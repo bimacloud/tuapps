@@ -72,6 +72,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/payments/student/{id}/recap', [PaymentController::class, 'studentRecap']);
             Route::get('/payments/student/{student}/card', [PaymentController::class, 'studentCard']);
             Route::get('/payment-cards', [PaymentController::class, 'classCards']);
+            Route::get('/cashier-sessions', [CashierSessionController::class, 'index']);
             // Settings
             Route::get('/settings', [SettingsController::class, 'index']);
             Route::post('/settings', [SettingsController::class, 'update']);

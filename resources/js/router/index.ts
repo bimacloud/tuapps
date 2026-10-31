@@ -67,6 +67,12 @@ const router = createRouter({
       meta: { title: 'Kasir' },
     },
     {
+      path: '/kasir/riwayat',
+      name: 'Riwayat Kas',
+      component: () => import('../views/Billing/Cashier/Sessions.vue'),
+      meta: { title: 'Riwayat Kas' },
+    },
+    {
       path: '/pembayaran',
       name: 'Riwayat Pembayaran',
       component: () => import('../views/Billing/Payments/History.vue'),
