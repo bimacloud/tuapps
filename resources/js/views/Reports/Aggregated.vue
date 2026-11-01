@@ -1,108 +1,137 @@
 <template>
-  <div class="rounded-sm border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark p-6">
-    <div class="flex flex-col md:flex-row gap-4 mb-6 justify-between items-end">
-      <div class="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-        <div class="w-full md:w-64">
-          <label class="mb-2 block text-sm font-medium text-black dark:text-white">Jenis Rekapitulasi</label>
-          <select v-model="reportType" @change="fetchData" class="w-full rounded border-[1.5px] border-stroke bg-transparent py-2 px-4 font-medium outline-none transition focus:border-primary active:border-primary dark:border-form-strokedark dark:bg-form-input dark:focus:border-primary">
-            <option value="per-kelas">Per Kelas</option>
-            <option value="per-jurusan">Per Jurusan</option>
-            <option value="per-jenis">Per Jenis Tagihan</option>
-          </select>
-        </div>
+  <div class="report">
+    <div class="no-print mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div class="w-full sm:w-72">
+        <label for="aggregated-type" class="field-label">Kelompokkan menurut</label>
+        <select id="aggregated-type" v-model="reportType" class="field-input" @change="fetchData">
+          <option v-for="option in reportOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+        </select>
       </div>
-      <div class="flex gap-2">
-        <button @click="printPdf" class="inline-flex items-center justify-center rounded-md border border-primary py-2 px-4 text-center font-medium text-primary hover:bg-opacity-90 hover:bg-primary hover:text-white">
-          Print PDF
-        </button>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="btn btn-secondary" :disabled="!canPrint" @click="printPdf">Cetak laporan</button>
       </div>
     </div>
 
-    <div class="overflow-x-auto print-area" id="print-area">
-      <div class="hidden print:block mb-6 text-center">
-        <h2 class="text-2xl font-bold">Laporan Rekapitulasi Pembayaran</h2>
-        <p class="text-gray-500 uppercase">{{ reportType.replace('-', ' ') }}</p>
+    <div class="mb-4 hidden print:block">
+      <p v-if="schoolStore.name" class="font-semibold">{{ schoolStore.name }}</p>
+      <h2 class="text-2xl font-bold">Laporan Rekapitulasi Pembayaran</h2>
+      <p>Dikelompokkan per {{ currentOption.noun }}</p>
+      <p>Dicetak: {{ formatDateTime(new Date()) }}</p>
+    </div>
+
+    <section class="panel overflow-hidden" aria-labelledby="aggregated-heading">
+      <div class="no-print border-b border-garis px-5 py-4">
+        <h2 id="aggregated-heading" class="text-xl font-bold">Rekap tagihan per {{ currentOption.noun }}</h2>
+        <p class="text-sm text-tinta-2">Tagihan, pembayaran, dan sisa tunggakan untuk setiap {{ currentOption.noun }}.</p>
       </div>
 
-      <table class="w-full text-sm text-left">
-        <thead class="bg-gray-2 dark:bg-meta-4">
-          <tr>
-            <th class="py-3 px-4 font-medium text-black dark:text-white">Kategori</th>
-            <th v-if="reportType !== 'per-jenis'" class="py-3 px-4 font-medium text-center text-black dark:text-white">Jml Siswa</th>
-            <th class="py-3 px-4 text-right font-medium text-black dark:text-white">Total Tagihan</th>
-            <th class="py-3 px-4 text-right font-medium text-black dark:text-white">Terbayar</th>
-            <th class="py-3 px-4 text-right font-medium text-black dark:text-white">Tunggakan</th>
-            <th class="py-3 px-4 text-center font-medium text-black dark:text-white">% Lunas</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="loading" class="border-b border-stroke dark:border-strokedark">
-            <td colspan="6" class="py-4 text-center">Memuat data...</td>
-          </tr>
-          <tr v-else-if="items.length === 0" class="border-b border-stroke dark:border-strokedark">
-            <td colspan="6" class="py-4 text-center">Tidak ada data rekapitulasi.</td>
-          </tr>
-          <tr v-for="item in items" :key="item.id" class="border-b border-stroke dark:border-strokedark">
-            <td class="py-3 px-4 font-medium">
-              {{ item.class_name || item.major_name || item.name }}
-            </td>
-            <td v-if="reportType !== 'per-jenis'" class="py-3 px-4 text-center">{{ item.total_students }}</td>
-            <td class="py-3 px-4 text-right">{{ formatRupiah(item.total_tagihan) }}</td>
-            <td class="py-3 px-4 text-right text-success">{{ formatRupiah(item.total_pembayaran) }}</td>
-            <td class="py-3 px-4 text-right text-danger">{{ formatRupiah(item.total_tunggakan) }}</td>
-            <td class="py-3 px-4 text-center">
-              <span class="inline-flex rounded-full bg-opacity-10 py-1 px-3 text-xs font-medium" :class="item.collection_rate > 70 ? 'bg-success text-success' : 'bg-warning text-warning'">
-                {{ item.collection_rate }}%
-              </span>
-            </td>
-          </tr>
-        </tbody>
-        <tfoot v-if="items.length > 0">
-          <tr class="font-bold bg-gray-50 dark:bg-meta-4">
-            <td :colspan="reportType !== 'per-jenis' ? 2 : 1" class="py-3 px-4 text-right">TOTAL KESELURUHAN</td>
-            <td class="py-3 px-4 text-right">{{ formatRupiah(totals.tagihan) }}</td>
-            <td class="py-3 px-4 text-right text-success">{{ formatRupiah(totals.pembayaran) }}</td>
-            <td class="py-3 px-4 text-right text-danger">{{ formatRupiah(totals.tunggakan) }}</td>
-            <td class="py-3 px-4 text-center">
-              {{ totals.tagihan > 0 ? Math.round((totals.pembayaran / totals.tagihan) * 100) : 0 }}%
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+      <DataState v-if="loading" state="loading" :message="`Menghitung rekap per ${currentOption.noun}.`" />
+      <DataState v-else-if="loadError" state="error" title="Rekapitulasi gagal dimuat." :message="loadError">
+        <button type="button" class="btn btn-secondary" @click="fetchData">Coba lagi</button>
+      </DataState>
+      <DataState
+        v-else-if="items.length === 0"
+        state="empty"
+        :title="`Belum ada ${currentOption.noun} untuk direkap.`"
+        :message="`Rekap muncul setelah data ${currentOption.noun} dibuat di Master Data atau Tagihan.`"
+      />
+
+      <div v-else class="overflow-x-auto">
+        <table class="table-data">
+          <thead>
+            <tr>
+              <th scope="col">{{ currentOption.column }}</th>
+              <th v-if="showStudents" scope="col" class="num">Jumlah siswa</th>
+              <th scope="col" class="num">Total tagihan</th>
+              <th scope="col" class="num">Terbayar</th>
+              <th scope="col" class="num">Tunggakan</th>
+              <th scope="col" class="num">Persen lunas</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in items" :key="item.id">
+              <td class="font-semibold">{{ item.class_name || item.major_name || item.name || '-' }}</td>
+              <td v-if="showStudents" class="num">{{ formatAngka(item.total_students) }}</td>
+              <td class="num">{{ formatRupiah(item.total_tagihan) }}</td>
+              <td class="num">{{ formatRupiah(item.total_pembayaran) }}</td>
+              <td class="num text-belum">{{ formatRupiah(item.total_tunggakan) }}</td>
+              <td class="num">{{ formatPercent(item.collection_rate, item.total_tagihan) }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="border-t-2 border-garis-kuat font-bold">
+              <th scope="row" :colspan="showStudents ? 2 : 1" class="px-4 py-3 text-right">Total keseluruhan</th>
+              <td class="num px-4 py-3">{{ formatRupiah(totals.tagihan) }}</td>
+              <td class="num px-4 py-3">{{ formatRupiah(totals.pembayaran) }}</td>
+              <td class="num px-4 py-3 text-belum">{{ formatRupiah(totals.tunggakan) }}</td>
+              <td class="num px-4 py-3">
+                {{ totals.tagihan > 0 ? `${Math.round((totals.pembayaran / totals.tagihan) * 100)}%` : '-' }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import { useSchoolStore } from '@/stores/school'
+import { formatRupiah, formatAngka, formatDateTime, errorMessage } from '@/utils/format'
+import DataState from '@/components/app/DataState.vue'
+
+const schoolStore = useSchoolStore()
+
+const reportOptions = [
+  { value: 'per-kelas', label: 'Kelas', noun: 'kelas', column: 'Kelas' },
+  { value: 'per-jurusan', label: 'Jurusan', noun: 'jurusan', column: 'Jurusan' },
+  { value: 'per-jenis', label: 'Jenis tagihan', noun: 'jenis tagihan', column: 'Jenis tagihan' },
+]
 
 const reportType = ref('per-kelas')
 const items = ref([])
-const loading = ref(false)
+const loading = ref(true)
+const loadError = ref('')
+
+const currentOption = computed(() => reportOptions.find((option) => option.value === reportType.value) ?? reportOptions[0])
+const showStudents = computed(() => reportType.value !== 'per-jenis')
+const canPrint = computed(() => !loading.value && !loadError.value && items.value.length > 0)
 
 const totals = computed(() => {
-  return items.value.reduce((acc, item) => {
-    acc.tagihan += parseFloat(item.total_tagihan)
-    acc.pembayaran += parseFloat(item.total_pembayaran)
-    acc.tunggakan += parseFloat(item.total_tunggakan)
-    return acc
-  }, { tagihan: 0, pembayaran: 0, tunggakan: 0 })
+  return items.value.reduce(
+    (acc, item) => {
+      acc.tagihan += parseFloat(item.total_tagihan) || 0
+      acc.pembayaran += parseFloat(item.total_pembayaran) || 0
+      acc.tunggakan += parseFloat(item.total_tunggakan) || 0
+      return acc
+    },
+    { tagihan: 0, pembayaran: 0, tunggakan: 0 },
+  )
 })
 
-const formatRupiah = (number) => {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0)
+/** A rate over zero billed is meaningless, so it shows "-" instead of the API's 0. */
+const formatPercent = (rate, billed) => {
+  if (rate === null || rate === undefined || !(parseFloat(billed) > 0)) return '-'
+  return `${Number(rate).toLocaleString('id-ID', { maximumFractionDigits: 2 })}%`
 }
 
+let requestId = 0
+
 const fetchData = async () => {
+  const thisRequest = ++requestId
   loading.value = true
+  loadError.value = ''
   try {
     const res = await axios.get(`/api/v1/reports/${reportType.value}`)
+    if (thisRequest !== requestId) return
     items.value = res.data.data
   } catch (error) {
-    console.error('Error fetching aggregated report', error)
+    if (thisRequest !== requestId) return
+    loadError.value = errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
   } finally {
-    loading.value = false
+    if (thisRequest === requestId) loading.value = false
   }
 }
 
@@ -114,3 +143,28 @@ onMounted(() => {
   fetchData()
 })
 </script>
+
+<style scoped>
+@media print {
+  .report,
+  .report * {
+    color: #000 !important;
+  }
+  .report .panel {
+    border: 0;
+    border-radius: 0;
+  }
+  .report .overflow-x-auto {
+    overflow: visible;
+  }
+  .report table {
+    font-size: 10pt;
+  }
+  .report th,
+  .report td {
+    background: #fff !important;
+    border: 1px solid #000 !important;
+    padding: 4px 6px !important;
+  }
+}
+</style>

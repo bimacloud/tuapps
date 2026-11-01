@@ -8,19 +8,9 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'Ecommerce',
-      component: () => import('../views/Ecommerce.vue'),
-      meta: {
-        title: 'eCommerce Dashboard',
-      },
-    },
-    {
-      path: '/calendar',
-      name: 'Calendar',
-      component: () => import('../views/Others/Calendar.vue'),
-      meta: {
-        title: 'Calendar',
-      },
+      name: 'Dashboard',
+      component: () => import('../views/Dashboard.vue'),
+      meta: { title: 'Beranda' },
     },
     {
       path: '/master/academic-years',
@@ -68,232 +58,116 @@ const router = createRouter({
       path: '/billing/invoices/generate',
       name: 'Generate Invoices',
       component: () => import('../views/Billing/Invoices/Generate.vue'),
-      meta: {
-        title: 'Generate Tagihan',
-        requiresAuth: true
-      }
+      meta: { title: 'Buat Tagihan' },
     },
     {
       path: '/kasir',
       name: 'Kasir Pembayaran',
       component: () => import('../views/Billing/Cashier/Index.vue'),
-      meta: {
-        title: 'Kasir',
-        requiresAuth: true
-      }
+      meta: { title: 'Kasir' },
+    },
+    {
+      path: '/kasir/riwayat',
+      name: 'Riwayat Kas',
+      component: () => import('../views/Billing/Cashier/Sessions.vue'),
+      meta: { title: 'Riwayat Kas' },
     },
     {
       path: '/pembayaran',
       name: 'Riwayat Pembayaran',
       component: () => import('../views/Billing/Payments/History.vue'),
-      meta: {
-        title: 'Riwayat Pembayaran',
-        requiresAuth: true
-      }
+      meta: { title: 'Riwayat Pembayaran' },
     },
     {
       path: '/pembayaran/:id/kuitansi',
       name: 'Cetak Kuitansi',
       component: () => import('../views/Billing/Payments/Receipt.vue'),
-      meta: {
-        title: 'Kuitansi',
-        requiresAuth: true,
-        hideSidebar: true
-      }
+      meta: { title: 'Kuitansi' },
     },
     {
       path: '/siswa/:id/rekap',
       name: 'Rekap Pembayaran Siswa',
       component: () => import('../views/Billing/Students/Recap.vue'),
-      meta: {
-        title: 'Rekap Pembayaran Siswa',
-        requiresAuth: true
-      }
+      meta: { title: 'Rekap Pembayaran Siswa' },
     },
     {
-      path: '/profile',
-      name: 'profile',
-      component: () => import('../views/Others/UserProfile.vue'),
-      meta: {
-        title: 'Profile',
-        requiresAuth: true
-      }
+      path: '/kartu-pembayaran',
+      name: 'Cetak Kartu Pembayaran',
+      component: () => import('../views/Billing/Cards/Index.vue'),
+      meta: { title: 'Kartu Pembayaran' },
+    },
+    {
+      path: '/siswa/:id/kartu',
+      name: 'Kartu Pembayaran',
+      component: () => import('../views/Billing/Students/PaymentCard.vue'),
+      meta: { title: 'Kartu Bukti Pembayaran' },
     },
     {
       path: '/reports',
       component: () => import('../views/Reports/Index.vue'),
-      meta: {
-        title: 'Laporan Keuangan',
-        requiresAuth: true
-      },
+      meta: { title: 'Laporan' },
       children: [
         {
           path: 'harian',
           name: 'Laporan Harian',
           component: () => import('../views/Reports/Daily.vue'),
+          meta: { title: 'Laporan Harian' },
         },
         {
           path: 'tunggakan',
           name: 'Laporan Tunggakan',
           component: () => import('../views/Reports/Arrears.vue'),
+          meta: { title: 'Laporan Tunggakan' },
         },
         {
           path: 'aggregated',
           name: 'Laporan Rekapitulasi',
           component: () => import('../views/Reports/Aggregated.vue'),
-        }
-      ]
+          meta: { title: 'Laporan Rekapitulasi' },
+        },
+      ],
     },
     {
       path: '/approvals',
       name: 'Persetujuan (Approval)',
       component: () => import('../views/Approvals/Index.vue'),
-      meta: {
-        title: 'Persetujuan',
-        requiresAuth: true
-      }
+      meta: { title: 'Persetujuan' },
     },
     {
       path: '/audit-logs',
       name: 'Audit Logs',
       component: () => import('../views/AuditLogs/Index.vue'),
-      meta: {
-        title: 'Audit Logs',
-        requiresAuth: true
-      }
+      meta: { title: 'Audit Log' },
     },
     {
       path: '/settings',
       name: 'Pengaturan Aplikasi',
       component: () => import('../views/Settings/Index.vue'),
-      meta: {
-        title: 'Pengaturan Aplikasi',
-        requiresAuth: true
-      }
+      meta: { title: 'Pengaturan' },
     },
-    {
-      path: '/form-elements',
-      name: 'Form Elements',
-      component: () => import('../views/Forms/FormElements.vue'),
-      meta: {
-        title: 'Form Elements',
-      },
-    },
-    {
-      path: '/basic-tables',
-      name: 'Basic Tables',
-      component: () => import('../views/Tables/BasicTables.vue'),
-      meta: {
-        title: 'Basic Tables',
-      },
-    },
-    {
-      path: '/line-chart',
-      name: 'Line Chart',
-      component: () => import('../views/Chart/LineChart/LineChart.vue'),
-    },
-    {
-      path: '/bar-chart',
-      name: 'Bar Chart',
-      component: () => import('../views/Chart/BarChart/BarChart.vue'),
-    },
-    {
-      path: '/alerts',
-      name: 'Alerts',
-      component: () => import('../views/UiElements/Alerts.vue'),
-      meta: {
-        title: 'Alerts',
-      },
-    },
-    {
-      path: '/avatars',
-      name: 'Avatars',
-      component: () => import('../views/UiElements/Avatars.vue'),
-      meta: {
-        title: 'Avatars',
-      },
-    },
-    {
-      path: '/badge',
-      name: 'Badge',
-      component: () => import('../views/UiElements/Badges.vue'),
-      meta: {
-        title: 'Badge',
-      },
-    },
-
-    {
-      path: '/buttons',
-      name: 'Buttons',
-      component: () => import('../views/UiElements/Buttons.vue'),
-      meta: {
-        title: 'Buttons',
-      },
-    },
-
-    {
-      path: '/images',
-      name: 'Images',
-      component: () => import('../views/UiElements/Images.vue'),
-      meta: {
-        title: 'Images',
-      },
-    },
-    {
-      path: '/videos',
-      name: 'Videos',
-      component: () => import('../views/UiElements/Videos.vue'),
-      meta: {
-        title: 'Videos',
-      },
-    },
-    {
-      path: '/blank',
-      name: 'Blank',
-      component: () => import('../views/Pages/BlankPage.vue'),
-      meta: {
-        title: 'Blank',
-      },
-    },
-
-    {
-      path: '/error-404',
-      name: '404 Error',
-      component: () => import('../views/Errors/FourZeroFour.vue'),
-      meta: {
-        title: '404 Error',
-      },
-    },
-
     {
       path: '/signin',
       name: 'Signin',
       component: () => import('../views/Auth/Signin.vue'),
-      meta: {
-        title: 'Signin',
-      },
+      meta: { title: 'Masuk' },
     },
     {
-      path: '/signup',
-      name: 'Signup',
-      component: () => import('../views/Auth/Signup.vue'),
-      meta: {
-        title: 'Signup',
-      },
+      path: '/:pathMatch(.*)*',
+      name: 'NotFound',
+      component: () => import('../views/Errors/FourZeroFour.vue'),
+      meta: { title: 'Halaman tidak ditemukan' },
     },
   ],
 })
 
 import { useAuthStore } from '../stores/auth'
+import { useSchoolStore } from '../stores/school'
 
 export default router
 
 router.beforeEach(async (to, from, next) => {
-  document.title = `Sistem Pembayaran SMK | ${to.meta.title}`
-  
   const authStore = useAuthStore()
-  
-  // Try to fetch user if token exists but user is not loaded
+
   if (authStore.token && !authStore.user) {
     await authStore.fetchUser()
   }
@@ -303,8 +177,27 @@ router.beforeEach(async (to, from, next) => {
   if (to.name !== 'Signin' && !isAuthenticated) {
     next({ name: 'Signin' })
   } else if (to.name === 'Signin' && isAuthenticated) {
-    next({ name: 'Ecommerce' })
+    next({ name: 'Dashboard' })
   } else {
     next()
   }
+})
+
+/**
+ * After a new build, an open tab still points at old page chunks that no longer exist.
+ * Instead of silently staying on the current page, load the target page fresh.
+ */
+router.onError((error, to) => {
+  const isStaleChunk = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(
+    String(error?.message ?? error),
+  )
+  if (isStaleChunk && to?.fullPath) {
+    window.location.assign(to.fullPath)
+  }
+})
+
+router.afterEach((to) => {
+  const schoolStore = useSchoolStore()
+  const appName = schoolStore.settings.school_name || 'Pembayaran Sekolah'
+  document.title = `${to.meta.title ?? ''} | ${appName}`
 })

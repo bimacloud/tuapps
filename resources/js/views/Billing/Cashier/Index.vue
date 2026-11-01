@@ -1,42 +1,695 @@
-<script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
-import axios from 'axios'
-import {
-  Search,
-  X,
-  Check,
-  Printer,
-  Banknote,
-  CreditCard,
-  QrCode,
-  ArrowLeft,
-  ArrowRight,
-  LoaderCircle,
-  CircleAlert,
-  CircleCheckBig,
-  Receipt,
-  Wallet,
-  Lock,
-  Clock,
-} from 'lucide-vue-next'
+<template>
+  <AdminLayout>
+    <PageHeader title="Kasir" description="Cari siswa, pilih tagihan yang dibayar, terima uang, lalu cetak kuitansi." />
 
-const inputClass =
-  'h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800'
+    <!-- Status kas: pembayaran hanya bisa dicatat saat kas dibuka. -->
+    <section
+      aria-labelledby="judul-status-kas"
+      class="panel mb-6 flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+      :class="isSessionClosed ? 'border-amber bg-amber-muda' : ''"
+    >
+      <h2 id="judul-status-kas" class="sr-only">Status kas</h2>
+      <p v-if="sessionLoading" class="text-tinta-2" role="status">Memeriksa status kas...</p>
+      <template v-else-if="sessionCheckError">
+        <p class="font-semibold text-galat" role="alert">{{ sessionCheckError }}</p>
+        <button type="button" class="btn btn-secondary" @click="checkSession">Coba lagi</button>
+      </template>
+      <template v-else-if="activeSession">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <StatusTag status="OPEN" />
+          <p class="text-tinta-2">
+            Dibuka pukul {{ formatTime(activeSession.start_time) }}, modal awal
+            <span class="font-semibold text-tinta tabular-nums">{{ formatRupiah(activeSession.starting_balance) }}</span>
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <router-link to="/kasir/riwayat" class="btn btn-ghost">Riwayat kas</router-link>
+          <button type="button" class="btn btn-secondary" :disabled="isLoadingSummary" @click="fetchSessionSummary">
+            {{ isLoadingSummary ? 'Menghitung kas...' : 'Tutup kas' }}
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <StatusTag status="CLOSED" />
+          <p class="font-medium text-tinta">Pembayaran baru bisa dicatat setelah kas dibuka.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <router-link to="/kasir/riwayat" class="btn btn-ghost">Riwayat kas</router-link>
+          <button type="button" class="btn btn-primary" @click="openSessionModal">Buka kas</button>
+        </div>
+      </template>
+    </section>
+
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem]">
+      <div class="min-w-0 space-y-6">
+        <!-- 1. Cari siswa -->
+        <section v-if="!selectedStudent" class="panel p-5" aria-labelledby="judul-cari-siswa">
+          <h2 id="judul-cari-siswa" class="text-xl font-bold">1. Cari siswa</h2>
+          <label for="cari-siswa" class="field-label mt-3">Nama, NIS, atau NISN</label>
+          <input
+            id="cari-siswa"
+            ref="searchInput"
+            v-model="searchQuery"
+            type="text"
+            autocomplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="hasil-cari-siswa"
+            :aria-expanded="hasSearchResults ? 'true' : 'false'"
+            :aria-activedescendant="activeOptionId"
+            aria-describedby="cari-siswa-petunjuk"
+            :disabled="!activeSession"
+            class="field-input text-lg"
+            placeholder="Nama, NIS, atau NISN siswa"
+            @keydown="onSearchKeydown"
+          />
+          <p id="cari-siswa-petunjuk" class="field-hint">
+            {{
+              activeSession
+                ? 'Hanya siswa aktif yang masih punya tagihan. Pilih dengan tombol panah atas dan bawah, lalu tekan Enter.'
+                : 'Buka kas dulu untuk mulai mencatat pembayaran.'
+            }}
+          </p>
+
+          <div v-if="searchQuery" class="mt-3">
+            <p v-if="isSearching" class="text-tinta-2" role="status">Mencari siswa...</p>
+            <p v-else-if="searchError" class="field-error" role="alert">{{ searchError }}</p>
+            <p v-else-if="searchResults.length === 0" class="text-tinta-2" role="status">
+              Tidak ada siswa aktif dengan tagihan belum lunas yang cocok dengan "{{ searchQuery }}". Periksa ejaan nama atau
+              nomor induk.
+            </p>
+            <ul
+              v-else
+              id="hasil-cari-siswa"
+              role="listbox"
+              aria-label="Hasil pencarian siswa"
+              class="divide-y divide-garis overflow-hidden rounded-[var(--radius-kontrol)] border border-garis"
+            >
+              <li
+                v-for="(student, index) in searchResults"
+                :id="`opsi-siswa-${student.id}`"
+                :key="student.id"
+                role="option"
+                :aria-selected="index === highlightedIndex ? 'true' : 'false'"
+                class="flex min-h-14 cursor-pointer flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2.5"
+                :class="index === highlightedIndex ? 'bg-amber-muda' : 'hover:bg-krem'"
+                @click="selectStudent(student)"
+                @mouseenter="highlightedIndex = index"
+              >
+                <span class="min-w-0">
+                  <span class="block font-semibold">{{ student.name }}</span>
+                  <span class="block text-sm text-tinta-2">NIS {{ student.nis || '-' }}, NISN {{ student.nisn || '-' }}</span>
+                </span>
+                <span v-if="student.class_room?.name" class="text-sm font-semibold text-tinta-2">{{ student.class_room.name }}</span>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- Siswa terpilih -->
+        <section v-else class="panel flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between" aria-labelledby="judul-siswa">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-tinta-2">Siswa</p>
+            <h2 id="judul-siswa" class="text-2xl font-bold leading-tight">{{ selectedStudent.name }}</h2>
+            <p class="text-tinta-2">{{ studentDetail(selectedStudent) }}</p>
+            <a
+              :href="`/siswa/${selectedStudent.id}/rekap`"
+              target="_blank"
+              rel="noopener"
+              class="link inline-flex min-h-11 items-center text-sm"
+            >
+              Lihat rekap pembayaran<span class="sr-only"> (tab baru)</span>
+            </a>
+          </div>
+          <div class="flex flex-wrap items-end justify-between gap-4 sm:flex-col sm:items-end">
+            <div v-if="!isLoadingInvoices && !invoicesError" class="sm:text-right">
+              <p class="text-sm text-tinta-2">Total belum dibayar</p>
+              <p class="font-display text-2xl font-bold text-belum tabular-nums">{{ formatRupiah(totalOutstanding) }}</p>
+            </div>
+            <button type="button" class="btn btn-secondary" @click="resetKasir">Ganti siswa</button>
+          </div>
+        </section>
+
+        <!-- 2. Pilih tagihan -->
+        <section v-if="selectedStudent" class="panel overflow-hidden" aria-labelledby="judul-tagihan">
+          <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-garis px-5 py-4">
+            <h2 id="judul-tagihan" ref="billsHeading" tabindex="-1" class="text-xl font-bold">2. Pilih tagihan yang dibayar</h2>
+            <p v-if="allItems.length" class="text-sm text-tinta-2">
+              {{ selectedItemList.length }} dari {{ allItems.length }} tagihan dipilih
+            </p>
+          </div>
+
+          <DataState v-if="isLoadingInvoices" state="loading" message="Mengambil tagihan siswa." />
+          <DataState v-else-if="invoicesError" state="error" :message="invoicesError">
+            <button type="button" class="btn btn-secondary" @click="loadStudentInvoices(selectedStudent.id)">Coba lagi</button>
+          </DataState>
+          <DataState
+            v-else-if="allItems.length === 0"
+            state="empty"
+            title="Tidak ada tagihan yang perlu dibayar."
+            message="Semua tagihan siswa ini sudah lunas. Cari siswa lain untuk transaksi berikutnya."
+          >
+            <button type="button" class="btn btn-secondary" @click="resetKasir">Ganti siswa</button>
+          </DataState>
+
+          <div v-else>
+            <template v-for="invoice in studentInvoices" :key="invoice.id">
+              <div v-if="invoice.items.length" class="border-b border-garis last:border-b-0">
+                <div class="flex flex-wrap items-center justify-between gap-2 bg-krem/60 px-5 py-1.5">
+                  <p class="text-sm">
+                    <span class="font-semibold">{{ invoice.invoice_number }}</span>
+                    <span v-if="invoice.academic_year?.name" class="text-tinta-2"> Tahun pelajaran {{ invoice.academic_year.name }}</span>
+                  </p>
+                  <button type="button" class="btn btn-ghost btn-sm" @click="toggleInvoice(invoice)">
+                    {{ isInvoiceFullySelected(invoice) ? 'Batalkan pilihan' : 'Pilih semua' }}
+                    <span class="sr-only">tagihan {{ invoice.invoice_number }}</span>
+                  </button>
+                </div>
+
+                <ul class="divide-y divide-garis">
+                  <li
+                    v-for="item in invoice.items"
+                    :key="item.id"
+                    class="px-5 py-3"
+                    :class="selectedItems[item.id] ? 'bg-amber-muda/40' : ''"
+                  >
+                    <div class="flex flex-wrap items-start gap-x-4 gap-y-1 sm:flex-nowrap">
+                      <label :for="`tagihan-${item.id}`" class="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-3">
+                        <input
+                          :id="`tagihan-${item.id}`"
+                          type="checkbox"
+                          class="field-check mt-1 shrink-0"
+                          :checked="selectedItems[item.id]"
+                          @change="toggleItem(item.id)"
+                        />
+                        <span class="min-w-0">
+                          <span class="block font-semibold">{{ itemName(item) }}</span>
+                          <span class="block text-sm text-tinta-2">
+                            Tarif {{ formatRupiah(item.amount) }}
+                            <template v-if="Number(item.paid_amount) > 0">(sudah dibayar {{ formatRupiah(item.paid_amount) }})</template>
+                          </span>
+                        </span>
+                      </label>
+                      <div class="ml-[1.875rem] sm:ml-0 sm:text-right">
+                        <p class="text-sm text-tinta-2">Sisa</p>
+                        <p class="font-semibold tabular-nums">{{ formatRupiah(item.remaining_amount) }}</p>
+                      </div>
+                    </div>
+
+                    <div v-if="selectedItems[item.id]" class="mt-3 sm:ml-[1.875rem] sm:max-w-xs">
+                      <label :for="`nominal-${item.id}`" class="field-label">
+                        Dibayar sekarang<span class="sr-only"> untuk {{ itemName(item) }}</span>
+                      </label>
+                      <input
+                        :id="`nominal-${item.id}`"
+                        v-model.number="payAmounts[item.id]"
+                        type="number"
+                        min="1"
+                        :max="item.remaining_amount"
+                        step="1000"
+                        inputmode="numeric"
+                        class="field-input text-right tabular-nums"
+                        :aria-invalid="itemErrors[item.id] ? 'true' : 'false'"
+                        :aria-describedby="`nominal-${item.id}-info`"
+                      />
+                      <div class="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                        <p v-if="itemErrors[item.id]" :id="`nominal-${item.id}-info`" class="field-error !mt-0">
+                          {{ itemErrors[item.id] }}
+                        </p>
+                        <p v-else :id="`nominal-${item.id}-info`" class="text-sm text-tinta-2">
+                          {{ isPartial(item) ? 'Dibayar sebagian. Sisanya tetap tercatat sebagai tunggakan.' : 'Tagihan ini lunas setelah dibayar.' }}
+                        </p>
+                        <button
+                          v-if="isPartial(item) || itemErrors[item.id]"
+                          type="button"
+                          class="btn btn-ghost btn-sm"
+                          @click="payInFull(item)"
+                        >
+                          Bayar penuh<span class="sr-only"> {{ itemName(item) }}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </template>
+          </div>
+        </section>
+      </div>
+
+      <!-- 3. Terima pembayaran -->
+      <section class="panel self-start p-5" aria-labelledby="judul-pembayaran">
+        <h2 id="judul-pembayaran" class="text-xl font-bold">3. Terima pembayaran</h2>
+
+        <DataState
+          v-if="selectedItemList.length === 0"
+          state="empty"
+          compact
+          :title="selectedStudent ? 'Belum ada tagihan dipilih.' : 'Belum ada siswa dipilih.'"
+          :message="
+            selectedStudent
+              ? 'Centang tagihan yang dibayar hari ini. Total dan pilihan metode muncul di sini.'
+              : 'Cari siswa dulu, lalu pilih tagihan yang dibayar.'
+          "
+        >
+          <button v-if="!selectedStudent && activeSession" type="button" class="btn btn-secondary" @click="focusSearch">
+            Ke pencarian siswa
+          </button>
+        </DataState>
+
+        <div v-else class="mt-4 space-y-5">
+          <ul class="space-y-1" aria-label="Tagihan yang dibayar">
+            <li v-for="item in selectedItemList" :key="item.id" class="flex items-start justify-between gap-3">
+              <span class="min-w-0 pt-2">
+                <span class="block">{{ itemName(item) }}</span>
+                <span v-if="isPartial(item)" class="block text-sm text-tinta-2">Cicilan</span>
+              </span>
+              <span class="flex shrink-0 items-center gap-1">
+                <span class="font-semibold tabular-nums">{{ formatRupiah(payAmounts[item.id]) }}</span>
+                <button type="button" class="btn btn-ghost btn-sm" @click="toggleItem(item.id)">
+                  Hapus<span class="sr-only"> {{ itemName(item) }} dari pembayaran</span>
+                </button>
+              </span>
+            </li>
+          </ul>
+
+          <div class="flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-t border-garis pt-4">
+            <span class="font-semibold">Total dibayar</span>
+            <span class="font-display text-4xl font-bold leading-none tabular-nums">{{ formatRupiah(totalToPay) }}</span>
+          </div>
+
+          <fieldset>
+            <legend class="field-label">Metode pembayaran</legend>
+            <div v-if="methodsError" class="space-y-2">
+              <p class="field-error !mt-0" role="alert">{{ methodsError }}</p>
+              <button type="button" class="btn btn-secondary" @click="getPaymentMethods">Muat ulang metode</button>
+            </div>
+            <div v-else-if="paymentMethods.length === 0" class="space-y-2">
+              <p class="text-sm text-tinta-2">Belum ada metode pembayaran yang aktif, jadi pembayaran belum bisa disimpan.</p>
+              <button type="button" class="btn btn-secondary" @click="getPaymentMethods">Muat ulang metode</button>
+            </div>
+            <div v-else class="grid gap-2">
+              <label
+                v-for="method in paymentMethods"
+                :key="method.id"
+                :for="`metode-${method.id}`"
+                class="flex min-h-11 cursor-pointer items-center gap-3 rounded-[var(--radius-kontrol)] border px-3"
+                :class="selectedMethod === method.id ? 'border-bata-tua bg-krem font-semibold' : 'border-garis-kuat'"
+              >
+                <input
+                  :id="`metode-${method.id}`"
+                  v-model="selectedMethod"
+                  type="radio"
+                  name="metode-pembayaran"
+                  class="field-check shrink-0"
+                  :value="method.id"
+                />
+                {{ method.name }}
+              </label>
+            </div>
+          </fieldset>
+
+          <div v-if="isCash" class="space-y-3 rounded-[var(--radius-kontrol)] border border-garis bg-krem/60 p-4">
+            <div>
+              <label for="uang-diterima" class="field-label">Uang diterima</label>
+              <input
+                id="uang-diterima"
+                v-model.number="cashReceived"
+                type="number"
+                min="0"
+                step="1000"
+                inputmode="numeric"
+                class="field-input text-right text-lg tabular-nums"
+                placeholder="Jumlah uang dari penyetor"
+                :aria-invalid="cashReceived && change < 0 ? 'true' : 'false'"
+                aria-describedby="uang-diterima-info"
+              />
+            </div>
+            <div class="flex flex-wrap gap-2" role="group" aria-label="Isi cepat uang diterima">
+              <button
+                v-for="(amount, index) in cashSuggestions"
+                :key="amount"
+                type="button"
+                class="btn btn-secondary px-3"
+                :class="cashReceived === amount ? '!border-bata-tua !bg-amber-muda' : ''"
+                :aria-pressed="cashReceived === amount ? 'true' : 'false'"
+                @click="cashReceived = amount"
+              >
+                {{ index === 0 ? 'Uang pas' : formatRupiah(amount) }}
+              </button>
+            </div>
+            <div id="uang-diterima-info" aria-live="polite">
+              <div v-if="cashReceived" class="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span class="font-semibold" :class="change >= 0 ? 'text-tinta' : 'text-galat'">
+                  {{ change >= 0 ? 'Kembalian' : 'Uang kurang' }}
+                </span>
+                <span class="font-display text-2xl font-bold tabular-nums" :class="change >= 0 ? 'text-lunas' : 'text-galat'">
+                  {{ formatRupiah(Math.abs(change)) }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <p v-else-if="selectedMethodObj" class="rounded-[var(--radius-kontrol)] border border-garis bg-krem/60 p-3 text-sm">
+            Pastikan dana sudah masuk ke rekening sekolah. Tulis nomor referensi di catatan.
+          </p>
+
+          <div>
+            <label for="catatan-pembayaran" class="field-label">
+              Catatan <span class="font-normal text-tinta-2">(tidak wajib)</span>
+            </label>
+            <textarea
+              id="catatan-pembayaran"
+              v-model="notes"
+              rows="2"
+              class="field-input"
+              placeholder="Nomor referensi transfer atau nama penyetor"
+            ></textarea>
+          </div>
+
+          <div>
+            <button
+              type="button"
+              class="btn btn-primary w-full text-base"
+              :disabled="!!blockingReason"
+              :aria-describedby="blockingReason ? 'alasan-belum-bisa-bayar' : undefined"
+              @click="openConfirm"
+            >
+              Proses pembayaran
+            </button>
+            <p v-if="blockingReason" id="alasan-belum-bisa-bayar" class="field-hint text-center">{{ blockingReason }}</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Konfirmasi pembayaran -->
+    <BaseModal
+      :open="showConfirmModal"
+      title="Konfirmasi pembayaran"
+      description="Periksa sekali lagi. Pembayaran yang sudah disimpan hanya bisa dibatalkan dengan persetujuan Kepala Sekolah."
+      @close="closeConfirm"
+    >
+      <div v-if="selectedStudent" class="space-y-4">
+        <div>
+          <p class="text-lg font-semibold">{{ selectedStudent.name }}</p>
+          <p class="text-sm text-tinta-2">{{ studentDetail(selectedStudent) }}</p>
+        </div>
+
+        <ul class="divide-y divide-garis border-y border-garis">
+          <li v-for="item in selectedItemList" :key="item.id" class="flex justify-between gap-3 py-2">
+            <span>
+              {{ itemName(item) }}<span v-if="isPartial(item)" class="text-tinta-2"> (cicilan)</span>
+            </span>
+            <span class="font-semibold whitespace-nowrap tabular-nums">{{ formatRupiah(payAmounts[item.id]) }}</span>
+          </li>
+        </ul>
+
+        <dl class="space-y-2">
+          <div class="flex justify-between gap-4">
+            <dt class="text-tinta-2">Metode</dt>
+            <dd class="font-semibold">{{ selectedMethodObj?.name }}</dd>
+          </div>
+          <div class="flex flex-wrap items-baseline justify-between gap-x-4">
+            <dt class="font-semibold">Total dibayar</dt>
+            <dd class="font-display text-3xl font-bold tabular-nums">{{ formatRupiah(totalToPay) }}</dd>
+          </div>
+          <template v-if="isCash">
+            <div class="flex justify-between gap-4">
+              <dt class="text-tinta-2">Uang diterima</dt>
+              <dd class="tabular-nums">{{ formatRupiah(cashReceived) }}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-tinta-2">Kembalian</dt>
+              <dd class="font-semibold text-lunas tabular-nums">{{ formatRupiah(change) }}</dd>
+            </div>
+          </template>
+          <div v-if="notes" class="flex justify-between gap-4">
+            <dt class="text-tinta-2">Catatan</dt>
+            <dd class="text-right">{{ notes }}</dd>
+          </div>
+        </dl>
+
+        <label
+          for="konfirmasi-uang-diterima"
+          class="flex cursor-pointer items-start gap-3 rounded-[var(--radius-kontrol)] border p-3"
+          :class="confirmChecked ? 'border-lunas bg-lunas-muda' : 'border-garis-kuat'"
+        >
+          <input id="konfirmasi-uang-diterima" v-model="confirmChecked" type="checkbox" class="field-check mt-0.5 shrink-0" />
+          <span>
+            <template v-if="isCash">
+              Saya sudah menerima uang tunai <strong>{{ formatRupiah(cashReceived) }}</strong> dan menyerahkan kembalian
+              <strong>{{ formatRupiah(change) }}</strong>.
+            </template>
+            <template v-else>
+              Saya sudah memastikan dana <strong>{{ formatRupiah(totalToPay) }}</strong> diterima melalui {{ selectedMethodObj?.name }}.
+            </template>
+          </span>
+        </label>
+
+        <p
+          v-if="paymentError"
+          class="rounded-[var(--radius-kontrol)] bg-galat-muda px-3 py-2 text-sm font-semibold text-galat"
+          role="alert"
+        >
+          {{ paymentError }}
+        </p>
+      </div>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" :disabled="isProcessing" @click="closeConfirm">Periksa lagi</button>
+        <button type="button" class="btn btn-primary" :disabled="!confirmChecked || isProcessing" @click="submitPayment">
+          {{ isProcessing ? 'Menyimpan pembayaran...' : 'Simpan pembayaran' }}
+        </button>
+      </template>
+    </BaseModal>
+
+    <!-- Pembayaran tersimpan -->
+    <BaseModal
+      :open="showSuccessModal"
+      title="Pembayaran tersimpan"
+      :description="successPayment?.transaction_number ? `Nomor transaksi ${successPayment.transaction_number}` : ''"
+      size="md"
+      @close="resetKasir"
+    >
+      <div class="space-y-4 text-center">
+        <div>
+          <p class="text-sm text-tinta-2">Total diterima</p>
+          <p class="font-display text-4xl font-bold tabular-nums">{{ formatRupiah(successPayment?.total_amount) }}</p>
+        </div>
+        <div v-if="successChange > 0" class="rounded-[var(--radius-kontrol)] border border-lunas bg-lunas-muda p-4 text-lunas">
+          <p class="font-semibold">Serahkan kembalian</p>
+          <p class="font-display text-3xl font-bold tabular-nums">{{ formatRupiah(successChange) }}</p>
+        </div>
+        <section class="rounded-[var(--radius-kontrol)] border border-garis p-4 text-left" aria-labelledby="catat-kartu">
+          <h3 id="catat-kartu" class="font-sans text-base font-semibold">Tulis di kartu siswa, lalu paraf</h3>
+          <p v-if="cardLinesError" class="mt-2 text-sm font-medium text-galat" role="alert">{{ cardLinesError }}</p>
+          <p v-else-if="!cardLines.length" class="mt-2 text-sm text-tinta-2" role="status">Menyiapkan baris kartu...</p>
+          <p v-else-if="!linesToWrite.length" class="mt-2 text-sm text-tinta-2">Tidak ada yang ditulis di kartu kali ini.</p>
+          <table v-if="linesToWrite.length" class="mt-2 w-full text-sm">
+            <thead>
+              <tr class="text-left text-tinta-2">
+                <th scope="col" class="py-1 font-semibold">Baris di kartu</th>
+                <th scope="col" class="py-1 font-semibold">Tanggal</th>
+                <th scope="col" class="py-1 text-right font-semibold">Jumlah</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="line in linesToWrite" :key="line.payment_item_id" class="border-t border-garis align-top">
+                <td class="py-1.5 pr-2">
+                  <span class="font-semibold">{{ line.side === 'bulanan' ? 'Bulanan' : 'Semester/tahunan' }} no {{ line.no }}</span>
+                  <span class="block">{{ line.row }}</span>
+                  <span class="block text-xs" :class="line.remaining_after > 0 ? 'text-belum' : 'text-lunas'">
+                    <template v-if="line.remaining_after > 0">Cicilan, sisa {{ formatRupiah(line.remaining_after) }}</template>
+                    <template v-else-if="line.side === 'bulanan' && line.card_amount > line.amount">Lunas, tulis total sebulan</template>
+                    <template v-else>Lunas</template>
+                  </span>
+                </td>
+                <td class="py-1.5 pr-2 tabular-nums">{{ formatShortDate(line.date) }}</td>
+                <td class="py-1.5 text-right tabular-nums">{{ formatAngka(line.card_amount) }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="linesToHold.length" class="mt-3 rounded-[var(--radius-kontrol)] bg-amber-muda px-3 py-2 text-sm">
+            <p class="font-semibold">Belum ditulis di kartu</p>
+            <ul class="mt-1 space-y-1">
+              <li v-for="line in linesToHold" :key="line.payment_item_id">
+                {{ line.row }} baru dibayar sebagian, sisa {{ formatRupiah(line.remaining_after) }}. Tulis di baris
+                {{ line.row }} saat lunas; kuitansi ini bukti cicilannya.
+              </li>
+            </ul>
+          </div>
+          <a
+            v-if="selectedStudent"
+            :href="`/siswa/${selectedStudent.id}/kartu?mode=terisi`"
+            target="_blank"
+            rel="noopener"
+            class="link mt-2 inline-flex min-h-11 items-center text-sm"
+          >
+            Kartu hilang? Cetak kartu pengganti<span class="sr-only"> (tab baru)</span>
+          </a>
+        </section>
+      </div>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="resetKasir">Transaksi baru</button>
+        <button ref="printButton" type="button" class="btn btn-primary" @click="printReceipt">Cetak kuitansi</button>
+      </template>
+    </BaseModal>
+
+    <!-- Buka kas -->
+    <BaseModal
+      :open="showOpenSessionModal"
+      title="Buka kas"
+      description="Hitung uang modal di laci, lalu masukkan jumlahnya sebagai saldo awal."
+      size="sm"
+      @close="showOpenSessionModal = false"
+    >
+      <form id="form-buka-kas" class="space-y-4" @submit.prevent="openSession">
+        <p
+          v-if="sessionError"
+          class="rounded-[var(--radius-kontrol)] bg-galat-muda px-3 py-2 text-sm font-semibold text-galat"
+          role="alert"
+        >
+          {{ sessionError }}
+        </p>
+        <div>
+          <label for="saldo-awal" class="field-label">Saldo awal tunai (Rp)</label>
+          <input
+            id="saldo-awal"
+            v-model.number="startingBalance"
+            type="number"
+            min="0"
+            step="1000"
+            inputmode="numeric"
+            required
+            class="field-input text-right text-lg tabular-nums"
+            placeholder="Jumlah uang modal di laci"
+          />
+          <p class="field-hint">Isi 0 bila laci kosong.</p>
+        </div>
+      </form>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="showOpenSessionModal = false">Nanti saja</button>
+        <button type="submit" form="form-buka-kas" class="btn btn-primary" :disabled="isSubmittingSession || !isStartingBalanceValid">
+          {{ isSubmittingSession ? 'Membuka kas...' : 'Buka kas' }}
+        </button>
+      </template>
+    </BaseModal>
+
+    <!-- Tutup kas -->
+    <BaseModal
+      :open="showCloseSessionModal && !!sessionSummary"
+      title="Tutup kas"
+      description="Hitung uang fisik di laci dan cocokkan dengan catatan sistem."
+      @close="showCloseSessionModal = false"
+    >
+      <form v-if="sessionSummary" id="form-tutup-kas" class="space-y-4" @submit.prevent="closeSession">
+        <dl class="divide-y divide-garis rounded-[var(--radius-kontrol)] border border-garis">
+          <div class="flex justify-between gap-4 px-4 py-2.5">
+            <dt class="text-tinta-2">Saldo awal</dt>
+            <dd class="tabular-nums">{{ formatRupiah(sessionSummary.session.starting_balance) }}</dd>
+          </div>
+          <div class="flex justify-between gap-4 px-4 py-2.5">
+            <dt class="text-tinta-2">Penerimaan tunai</dt>
+            <dd class="tabular-nums">+ {{ formatRupiah(sessionSummary.total_cash_payments) }}</dd>
+          </div>
+          <div class="flex flex-wrap items-baseline justify-between gap-x-4 px-4 py-2.5">
+            <dt class="font-semibold">Seharusnya di laci</dt>
+            <dd class="font-display text-2xl font-bold tabular-nums">{{ formatRupiah(sessionSummary.expected_balance) }}</dd>
+          </div>
+        </dl>
+
+        <div>
+          <label for="uang-fisik" class="field-label">Uang fisik di laci (Rp)</label>
+          <input
+            id="uang-fisik"
+            v-model.number="actualBalance"
+            type="number"
+            min="0"
+            step="1000"
+            inputmode="numeric"
+            required
+            class="field-input text-right text-lg tabular-nums"
+            placeholder="Hasil hitung uang di laci"
+          />
+        </div>
+
+        <div v-if="typeof actualBalance === 'number'" aria-live="polite">
+          <p v-if="closeDifference === 0" class="font-semibold text-lunas">Kas cocok, tidak ada selisih.</p>
+          <div v-else class="space-y-2">
+            <p class="font-semibold text-belum">
+              Selisih kas: {{ closeDifference > 0 ? 'lebih' : 'kurang' }} {{ formatRupiah(Math.abs(closeDifference)) }}
+            </p>
+            <div>
+              <label for="alasan-selisih" class="field-label">Alasan selisih</label>
+              <textarea
+                id="alasan-selisih"
+                v-model="closeNotes"
+                rows="2"
+                required
+                class="field-input"
+                aria-describedby="alasan-selisih-info"
+                placeholder="Penyebab uang di laci berbeda dari catatan"
+              ></textarea>
+              <p id="alasan-selisih-info" class="field-hint">Wajib diisi karena ada selisih.</p>
+            </div>
+          </div>
+        </div>
+
+        <p
+          v-if="sessionError"
+          class="rounded-[var(--radius-kontrol)] bg-galat-muda px-3 py-2 text-sm font-semibold text-galat"
+          role="alert"
+        >
+          {{ sessionError }}
+        </p>
+      </form>
+      <template #footer>
+        <button type="button" class="btn btn-secondary" @click="showCloseSessionModal = false">Batal</button>
+        <button
+          type="submit"
+          form="form-tutup-kas"
+          class="btn btn-primary"
+          :disabled="isSubmittingSession || typeof actualBalance !== 'number' || (closeDifference !== 0 && !closeNotes)"
+        >
+          {{ isSubmittingSession ? 'Menutup kas...' : 'Tutup kas' }}
+        </button>
+      </template>
+    </BaseModal>
+  </AdminLayout>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import axios from 'axios'
+import { useNotice } from '@/composables/useNotice'
+import { errorMessage, formatAngka, formatRupiah, formatShortDate } from '@/utils/format'
+import AdminLayout from '@/components/layout/AdminLayout.vue'
+import PageHeader from '@/components/app/PageHeader.vue'
+import DataState from '@/components/app/DataState.vue'
+import StatusTag from '@/components/app/StatusTag.vue'
+import BaseModal from '@/components/app/BaseModal.vue'
+
+const notice = useNotice()
 
 // Search state
 const searchInput = ref<HTMLInputElement | null>(null)
 const searchQuery = ref('')
 const searchResults = ref<any[]>([])
 const isSearching = ref(false)
+const searchError = ref('')
 const highlightedIndex = ref(0)
 
 // Selection state
 const selectedStudent = ref<any>(null)
 const studentInvoices = ref<any[]>([])
 const isLoadingInvoices = ref(false)
+const invoicesError = ref('')
+const billsHeading = ref<HTMLElement | null>(null)
 
 // Payment state
 const paymentMethods = ref<any[]>([])
+const methodsError = ref('')
 const selectedMethod = ref<number | null>(null)
 const notes = ref('')
 const cashReceived = ref<number | null>(null)
@@ -51,51 +704,75 @@ const paymentError = ref('')
 
 // Success state
 const successPayment = ref<any>(null)
+const cardLines = ref<any[]>([])
+const cardLinesError = ref('')
+const linesToWrite = computed(() => cardLines.value.filter((line) => line.write_now))
+const linesToHold = computed(() => cardLines.value.filter((line) => !line.write_now))
+
+/** Rows the treasurer copies onto the student's physical card for this payment. */
+const loadCardLines = async (paymentId: number) => {
+  cardLines.value = []
+  cardLinesError.value = ''
+  try {
+    const res = await axios.get(`/api/v1/payments/${paymentId}/receipt`)
+    cardLines.value = res.data.card_lines || []
+  } catch (err) {
+    cardLinesError.value = 'Baris kartu gagal dimuat. Rinciannya tetap ada di kuitansi.'
+  }
+}
 const successChange = ref(0)
 const showSuccessModal = ref(false)
+const printButton = ref<HTMLButtonElement | null>(null)
 
 // Session state
 const activeSession = ref<any>(null)
+const sessionLoading = ref(true)
+const sessionCheckError = ref('')
 const showOpenSessionModal = ref(false)
 const showCloseSessionModal = ref(false)
 const startingBalance = ref<number | null>(null)
 const actualBalance = ref<number | null>(null)
 const closeNotes = ref('')
 const sessionSummary = ref<any>(null)
+const isLoadingSummary = ref(false)
 const isSubmittingSession = ref(false)
 const sessionError = ref('')
-
-const formatRupiah = (value: number | string | null | undefined) => {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(Number(value) || 0)
-}
 
 const formatTime = (value: string) => {
   return new Date(value).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
 }
 
-const initials = (name: string) => {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join('')
-}
+const itemName = (item: any) => [item.payment_type?.name, item.period].filter(Boolean).join(', ')
+
+const studentDetail = (student: any) =>
+  [student.class_room?.name, student.class_room?.major?.name, `NIS ${student.nis || '-'}`].filter(Boolean).join(', ')
 
 // ---------- Session ----------
 
+const isSessionClosed = computed(() => !sessionLoading.value && !sessionCheckError.value && !activeSession.value)
+
 const checkSession = async () => {
+  sessionLoading.value = true
+  sessionCheckError.value = ''
   try {
     const res = await axios.get('/api/v1/cashier-sessions/current')
     if (res.data.data) {
       activeSession.value = res.data.data
       focusSearch()
     } else {
-      showOpenSessionModal.value = true
+      activeSession.value = null
+      openSessionModal()
     }
   } catch (err) {
-    console.error(err)
+    sessionCheckError.value = errorMessage(err, 'Status kas gagal diperiksa. Periksa koneksi ke server, lalu coba lagi.')
+  } finally {
+    sessionLoading.value = false
   }
+}
+
+const openSessionModal = () => {
+  sessionError.value = ''
+  showOpenSessionModal.value = true
 }
 
 const isStartingBalanceValid = computed(() => typeof startingBalance.value === 'number' && startingBalance.value >= 0)
@@ -113,7 +790,7 @@ const openSession = async () => {
     startingBalance.value = null
     focusSearch()
   } catch (err: any) {
-    sessionError.value = err.response?.data?.message || 'Gagal membuka sesi kasir'
+    sessionError.value = errorMessage(err, 'Kas gagal dibuka. Coba lagi.')
   } finally {
     isSubmittingSession.value = false
   }
@@ -123,12 +800,15 @@ const fetchSessionSummary = async () => {
   sessionError.value = ''
   actualBalance.value = null
   closeNotes.value = ''
+  isLoadingSummary.value = true
   try {
     const res = await axios.get('/api/v1/cashier-sessions/summary')
     sessionSummary.value = res.data.data
     showCloseSessionModal.value = true
   } catch (err) {
-    console.error(err)
+    notice.error(errorMessage(err, 'Ringkasan kas gagal dimuat, jadi kas belum bisa ditutup. Coba lagi.'))
+  } finally {
+    isLoadingSummary.value = false
   }
 }
 
@@ -139,6 +819,7 @@ const closeDifference = computed(() => {
 
 const closeSession = async () => {
   if (typeof actualBalance.value !== 'number') return
+  if (closeDifference.value !== 0 && !closeNotes.value) return
   isSubmittingSession.value = true
   sessionError.value = ''
   try {
@@ -146,12 +827,17 @@ const closeSession = async () => {
       actual_balance: actualBalance.value,
       notes: closeNotes.value,
     })
+    const difference = closeDifference.value
     showCloseSessionModal.value = false
     activeSession.value = null
+    notice.success(
+      difference === 0
+        ? 'Kas ditutup, uang cocok. Tercatat di Riwayat Kas.'
+        : `Kas ditutup dengan selisih ${difference > 0 ? 'lebih' : 'kurang'} ${formatRupiah(Math.abs(difference))}. Tercatat di Riwayat Kas beserta catatannya.`,
+    )
     resetKasir()
-    showOpenSessionModal.value = true
   } catch (err: any) {
-    sessionError.value = err.response?.data?.message || 'Gagal menutup sesi kasir'
+    sessionError.value = errorMessage(err, 'Kas gagal ditutup. Coba lagi.')
   } finally {
     isSubmittingSession.value = false
   }
@@ -160,13 +846,14 @@ const closeSession = async () => {
 // ---------- Student search ----------
 
 const getPaymentMethods = async () => {
+  methodsError.value = ''
   try {
     const res = await axios.get('/api/v1/payment-methods')
     paymentMethods.value = res.data.data
     const cash = paymentMethods.value.find((method) => method.code === 'CASH')
     selectedMethod.value = cash?.id ?? paymentMethods.value[0]?.id ?? null
   } catch (err) {
-    console.error(err)
+    methodsError.value = errorMessage(err, 'Metode pembayaran gagal dimuat.')
   }
 }
 
@@ -174,10 +861,18 @@ const focusSearch = () => {
   nextTick(() => searchInput.value?.focus())
 }
 
+const hasSearchResults = computed(() => !!searchQuery.value && !isSearching.value && searchResults.value.length > 0)
+
+const activeOptionId = computed(() => {
+  const student = hasSearchResults.value ? searchResults.value[highlightedIndex.value] : null
+  return student ? `opsi-siswa-${student.id}` : undefined
+})
+
 let searchTimeout: ReturnType<typeof setTimeout> | undefined
 watch(searchQuery, (newVal) => {
   clearTimeout(searchTimeout)
   highlightedIndex.value = 0
+  searchError.value = ''
   if (!newVal) {
     searchResults.value = []
     isSearching.value = false
@@ -190,7 +885,8 @@ watch(searchQuery, (newVal) => {
       const res = await axios.get('/api/v1/payments/students/search', { params: { q: newVal } })
       searchResults.value = res.data.data
     } catch (err) {
-      console.error(err)
+      searchResults.value = []
+      searchError.value = errorMessage(err, 'Pencarian siswa gagal. Periksa koneksi, lalu ketik ulang.')
     } finally {
       isSearching.value = false
     }
@@ -198,6 +894,11 @@ watch(searchQuery, (newVal) => {
 })
 
 const onSearchKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') {
+    searchQuery.value = ''
+    return
+  }
+
   if (!searchResults.value.length) return
 
   if (event.key === 'ArrowDown') {
@@ -209,8 +910,6 @@ const onSearchKeydown = (event: KeyboardEvent) => {
   } else if (event.key === 'Enter') {
     event.preventDefault()
     selectStudent(searchResults.value[highlightedIndex.value])
-  } else if (event.key === 'Escape') {
-    searchQuery.value = ''
   }
 }
 
@@ -221,11 +920,13 @@ const selectStudent = async (student: any) => {
   cashReceived.value = null
   notes.value = ''
 
+  nextTick(() => billsHeading.value?.focus())
   await loadStudentInvoices(student.id)
 }
 
 const loadStudentInvoices = async (studentId: number) => {
   isLoadingInvoices.value = true
+  invoicesError.value = ''
   try {
     const res = await axios.get(`/api/v1/payments/student/${studentId}/invoices`)
     studentInvoices.value = res.data.data
@@ -240,7 +941,7 @@ const loadStudentInvoices = async (studentId: number) => {
       })
     })
   } catch (err) {
-    console.error(err)
+    invoicesError.value = errorMessage(err, 'Tagihan siswa gagal dimuat. Periksa koneksi ke server, lalu coba lagi.')
   } finally {
     isLoadingInvoices.value = false
   }
@@ -259,9 +960,9 @@ const itemErrors = computed(() => {
   selectedItemList.value.forEach((item: any) => {
     const amount = payAmounts.value[item.id]
     if (!amount || amount <= 0) {
-      errors[item.id] = 'Nominal harus lebih dari 0'
+      errors[item.id] = 'Nominal harus lebih dari Rp 0.'
     } else if (amount > parseFloat(item.remaining_amount)) {
-      errors[item.id] = `Maksimal ${formatRupiah(item.remaining_amount)}`
+      errors[item.id] = `Paling banyak ${formatRupiah(item.remaining_amount)}, sesuai sisa tagihan.`
     }
   })
   return errors
@@ -306,29 +1007,14 @@ const cashSuggestions = computed(() => {
   return [...new Set(candidates)].slice(0, 4)
 })
 
-const methodIcon = (code: string) => {
-  if (code === 'CASH') return Banknote
-  if (code === 'ONLINE') return QrCode
-  return CreditCard
-}
-
 const blockingReason = computed(() => {
   if (selectedItemList.value.length === 0) return 'Pilih minimal satu tagihan.'
-  if (Object.keys(itemErrors.value).length > 0) return 'Periksa nominal tagihan yang ditandai merah.'
+  if (Object.keys(itemErrors.value).length > 0) return 'Perbaiki nominal tagihan yang belum benar.'
   if (!selectedMethod.value) return 'Pilih metode pembayaran.'
   if (isCash.value && (cashReceived.value === null || cashReceived.value <= 0)) return 'Isi jumlah uang yang diterima.'
   if (isCash.value && change.value < 0) return `Uang diterima kurang ${formatRupiah(-change.value)}.`
   return null
 })
-
-const currentStep = computed(() => {
-  if (showConfirmModal.value) return 4
-  if (!selectedStudent.value) return 1
-  if (selectedItemList.value.length === 0) return 2
-  return 3
-})
-
-const steps = ['Pilih Siswa', 'Pilih Tagihan', 'Pembayaran', 'Konfirmasi']
 
 const openConfirm = () => {
   if (blockingReason.value) return
@@ -362,23 +1048,34 @@ const submitPayment = async () => {
     successChange.value = isCash.value ? change.value : 0
     showConfirmModal.value = false
     showSuccessModal.value = true
+    loadCardLines(res.data.data.id)
   } catch (err: any) {
-    paymentError.value = err.response?.data?.message || 'Gagal memproses pembayaran'
+    paymentError.value = errorMessage(err, 'Pembayaran gagal disimpan. Coba lagi.')
   } finally {
     isProcessing.value = false
   }
 }
+
+/** BaseModal focuses its first control after one tick; move focus to "Cetak kuitansi" right after it. */
+watch(showSuccessModal, async (isOpen) => {
+  if (!isOpen) return
+  await nextTick()
+  await nextTick()
+  printButton.value?.focus()
+})
 
 const resetKasir = () => {
   showSuccessModal.value = false
   successPayment.value = null
   selectedStudent.value = null
   studentInvoices.value = []
+  invoicesError.value = ''
   payAmounts.value = {}
   selectedItems.value = {}
   notes.value = ''
   cashReceived.value = null
   searchQuery.value = ''
+  searchError.value = ''
   focusSearch()
 }
 
@@ -388,577 +1085,8 @@ const printReceipt = () => {
   }
 }
 
-const onGlobalKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Escape' && showConfirmModal.value) {
-    closeConfirm()
-  }
-}
-
 onMounted(() => {
   checkSession()
   getPaymentMethods()
-  window.addEventListener('keydown', onGlobalKeydown)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onGlobalKeydown)
 })
 </script>
-
-<template>
-  <div>
-    <!-- Header -->
-    <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 class="text-2xl font-semibold text-gray-800 dark:text-white/90">Kasir Pembayaran</h2>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Terima pembayaran tagihan siswa di loket.</p>
-      </div>
-      <div v-if="activeSession" class="flex flex-wrap items-center gap-3">
-        <span class="inline-flex items-center gap-2 rounded-full bg-success-50 px-3 py-1.5 text-xs font-medium text-success-700 dark:bg-success-500/15 dark:text-success-500">
-          <span class="h-2 w-2 animate-pulse rounded-full bg-success-500"></span>
-          Kasir buka sejak {{ formatTime(activeSession.start_time) }} · Modal {{ formatRupiah(activeSession.starting_balance) }}
-        </span>
-        <button
-          @click="fetchSessionSummary"
-          class="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-error-600 ring-1 ring-inset ring-error-200 transition hover:bg-error-50 dark:bg-gray-800 dark:text-error-500 dark:ring-error-500/30 dark:hover:bg-error-500/10"
-        >
-          <Lock class="h-4 w-4" />
-          Tutup Kasir
-        </button>
-      </div>
-    </div>
-
-    <!-- Stepper -->
-    <ol class="mb-6 flex flex-wrap items-center gap-2 text-sm">
-      <li v-for="(step, index) in steps" :key="step" class="flex items-center gap-2">
-        <span
-          class="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition"
-          :class="
-            index + 1 < currentStep
-              ? 'bg-success-500 text-white'
-              : index + 1 === currentStep
-                ? 'bg-brand-500 text-white ring-4 ring-brand-500/15'
-                : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
-          "
-        >
-          <Check v-if="index + 1 < currentStep" class="h-4 w-4" />
-          <template v-else>{{ index + 1 }}</template>
-        </span>
-        <span :class="index + 1 === currentStep ? 'font-medium text-gray-800 dark:text-white/90' : 'text-gray-500 dark:text-gray-400'">{{ step }}</span>
-        <span v-if="index < steps.length - 1" class="mx-1 hidden h-px w-8 bg-gray-200 sm:block dark:bg-gray-800"></span>
-      </li>
-    </ol>
-
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
-      <!-- Left: student & bills -->
-      <div class="space-y-6 xl:col-span-2">
-        <!-- Search -->
-        <div v-if="!selectedStudent" class="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-gray-800 dark:bg-white/[0.03]">
-          <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">Cari Siswa</label>
-          <div class="relative">
-            <Search class="pointer-events-none absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 text-gray-400" />
-            <input
-              ref="searchInput"
-              v-model="searchQuery"
-              @keydown="onSearchKeydown"
-              :disabled="!activeSession"
-              type="text"
-              placeholder="Ketik NIS, NISN, atau nama siswa..."
-              :class="[inputClass, 'h-12 pr-12 pl-12 disabled:cursor-not-allowed disabled:opacity-60']"
-            />
-            <LoaderCircle v-if="isSearching" class="absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 animate-spin text-brand-500" />
-
-            <!-- Results -->
-            <div
-              v-if="searchQuery && !isSearching"
-              class="absolute left-0 z-50 mt-2 max-h-80 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-800 dark:bg-gray-900"
-            >
-              <ul v-if="searchResults.length > 0">
-                <li
-                  v-for="(student, index) in searchResults"
-                  :key="student.id"
-                  @click="selectStudent(student)"
-                  @mouseenter="highlightedIndex = index"
-                  class="flex cursor-pointer items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0 dark:border-gray-800"
-                  :class="index === highlightedIndex ? 'bg-brand-50 dark:bg-brand-500/10' : ''"
-                >
-                  <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
-                    {{ initials(student.name) }}
-                  </span>
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate font-medium text-gray-800 dark:text-white/90">{{ student.name }}</p>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">NIS {{ student.nis || '-' }} · NISN {{ student.nisn || '-' }}</p>
-                  </div>
-                  <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                    {{ student.class_room?.name }}
-                  </span>
-                </li>
-              </ul>
-              <p v-else class="p-4 text-center text-sm text-gray-500 dark:text-gray-400">Tidak ada siswa dengan tagihan tertunggak.</p>
-            </div>
-          </div>
-          <p class="mt-2 text-xs text-gray-400">Gunakan ↑ ↓ untuk memilih dan Enter untuk konfirmasi.</p>
-        </div>
-
-        <!-- Selected student -->
-        <div v-else class="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 sm:flex-row sm:items-center dark:border-gray-800 dark:bg-white/[0.03]">
-          <span class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-100 text-lg font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
-            {{ initials(selectedStudent.name) }}
-          </span>
-          <div class="min-w-0 flex-1">
-            <p class="text-lg font-semibold text-gray-800 dark:text-white/90">{{ selectedStudent.name }}</p>
-            <p class="text-sm text-gray-500 dark:text-gray-400">
-              {{ selectedStudent.class_room?.name }} · {{ selectedStudent.class_room?.major?.name }} · NIS {{ selectedStudent.nis || '-' }}
-            </p>
-          </div>
-          <div class="sm:text-right">
-            <p class="text-xs text-gray-500 dark:text-gray-400">Total tunggakan</p>
-            <p class="text-lg font-semibold text-error-600 dark:text-error-500">{{ formatRupiah(totalOutstanding) }}</p>
-          </div>
-          <button
-            @click="resetKasir"
-            class="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 ring-1 ring-inset ring-gray-300 transition hover:bg-gray-50 dark:text-gray-400 dark:ring-gray-700 dark:hover:bg-white/[0.03]"
-          >
-            <ArrowLeft class="h-4 w-4" />
-            Ganti Siswa
-          </button>
-        </div>
-
-        <!-- Bills -->
-        <div v-if="selectedStudent" class="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div class="flex items-center justify-between px-5 py-4 sm:px-6">
-            <h3 class="text-base font-medium text-gray-800 dark:text-white/90">Tagihan Belum Lunas</h3>
-            <span class="text-sm text-gray-500 dark:text-gray-400">{{ selectedItemList.length }} dari {{ allItems.length }} dipilih</span>
-          </div>
-
-          <div class="border-t border-gray-100 p-4 sm:p-6 dark:border-gray-800">
-            <div v-if="isLoadingInvoices" class="space-y-3">
-              <div v-for="n in 3" :key="n" class="h-16 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800"></div>
-            </div>
-
-            <div v-else-if="studentInvoices.length === 0" class="flex flex-col items-center gap-2 py-8 text-center">
-              <CircleCheckBig class="h-10 w-10 text-success-500" />
-              <p class="font-medium text-gray-800 dark:text-white/90">Semua tagihan sudah lunas.</p>
-            </div>
-
-            <div v-else class="space-y-4">
-              <div v-for="invoice in studentInvoices" :key="invoice.id" class="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
-                <!-- Invoice header -->
-                <div class="flex flex-wrap items-center justify-between gap-3 bg-gray-50 px-4 py-3 dark:bg-white/[0.02]">
-                  <div class="flex items-center gap-3">
-                    <Receipt class="h-4 w-4 text-gray-400" />
-                    <span class="text-sm font-medium text-gray-800 dark:text-white/90">{{ invoice.invoice_number }}</span>
-                    <span class="text-xs text-gray-500 dark:text-gray-400">T.A. {{ invoice.academic_year?.name }}</span>
-                  </div>
-                  <button
-                    @click="toggleInvoice(invoice)"
-                    class="text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
-                  >
-                    {{ isInvoiceFullySelected(invoice) ? 'Batalkan semua' : 'Pilih semua' }}
-                  </button>
-                </div>
-
-                <!-- Items -->
-                <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                  <div
-                    v-for="item in invoice.items"
-                    :key="item.id"
-                    @click="toggleItem(item.id)"
-                    class="flex cursor-pointer flex-wrap items-center gap-4 px-4 py-3.5 transition sm:flex-nowrap"
-                    :class="selectedItems[item.id] ? 'bg-brand-50/60 dark:bg-brand-500/5' : 'hover:bg-gray-50 dark:hover:bg-white/[0.02]'"
-                  >
-                    <span
-                      class="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-[1.5px] transition"
-                      :class="selectedItems[item.id] ? 'border-brand-500 bg-brand-500' : 'border-gray-300 dark:border-gray-700'"
-                    >
-                      <Check v-if="selectedItems[item.id]" class="h-3.5 w-3.5 text-white" />
-                    </span>
-
-                    <div class="min-w-0 flex-1">
-                      <p class="font-medium text-gray-800 dark:text-white/90">
-                        {{ item.payment_type?.name }}
-                        <span v-if="item.period" class="text-gray-500 dark:text-gray-400">· {{ item.period }}</span>
-                      </p>
-                      <p class="text-xs text-gray-500 dark:text-gray-400">
-                        Tarif {{ formatRupiah(item.amount) }}
-                        <template v-if="Number(item.paid_amount) > 0"> · Sudah dibayar {{ formatRupiah(item.paid_amount) }}</template>
-                      </p>
-                    </div>
-
-                    <div class="text-right">
-                      <p class="text-xs text-gray-500 dark:text-gray-400">Sisa</p>
-                      <p class="text-sm font-semibold text-error-600 dark:text-error-500">{{ formatRupiah(item.remaining_amount) }}</p>
-                    </div>
-
-                    <!-- Amount editor (only when selected) -->
-                    <div v-if="selectedItems[item.id]" @click.stop class="w-full sm:w-48">
-                      <div class="relative">
-                        <span class="absolute top-1/2 left-3 -translate-y-1/2 text-sm text-gray-500">Rp</span>
-                        <input
-                          type="number"
-                          min="1"
-                          :max="item.remaining_amount"
-                          step="1000"
-                          v-model.number="payAmounts[item.id]"
-                          :class="[inputClass, 'h-10 pr-3 pl-10 text-right', itemErrors[item.id] ? 'border-error-300 focus:border-error-300 focus:ring-error-500/10 dark:border-error-700' : '']"
-                        />
-                      </div>
-                      <div class="mt-1 flex items-center justify-between gap-2 text-xs">
-                        <span v-if="itemErrors[item.id]" class="text-error-600 dark:text-error-500">{{ itemErrors[item.id] }}</span>
-                        <span v-else-if="isPartial(item)" class="text-warning-600 dark:text-warning-500">Cicilan</span>
-                        <span v-else class="text-success-600 dark:text-success-500">Lunas</span>
-                        <button v-if="isPartial(item) || itemErrors[item.id]" @click="payInFull(item)" class="font-medium text-brand-600 hover:underline dark:text-brand-400">
-                          Bayar lunas
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right: payment summary -->
-      <div class="xl:col-span-1">
-        <div class="sticky top-24 rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div class="px-5 py-4 sm:px-6">
-            <h3 class="text-base font-medium text-gray-800 dark:text-white/90">Ringkasan Pembayaran</h3>
-          </div>
-
-          <div class="border-t border-gray-100 p-5 sm:p-6 dark:border-gray-800">
-            <div v-if="selectedItemList.length === 0" class="flex flex-col items-center gap-2 py-8 text-center">
-              <Wallet class="h-10 w-10 text-gray-300 dark:text-gray-700" />
-              <p class="text-sm text-gray-500 dark:text-gray-400">
-                {{ selectedStudent ? 'Pilih tagihan yang akan dibayar.' : 'Cari dan pilih siswa terlebih dahulu.' }}
-              </p>
-            </div>
-
-            <div v-else class="space-y-5">
-              <!-- Selected items -->
-              <ul class="space-y-2">
-                <li v-for="item in selectedItemList" :key="item.id" class="flex items-start justify-between gap-3 text-sm">
-                  <div class="min-w-0">
-                    <p class="truncate text-gray-700 dark:text-gray-300">{{ item.payment_type?.name }} <span v-if="item.period">· {{ item.period }}</span></p>
-                    <p v-if="isPartial(item)" class="text-xs text-warning-600 dark:text-warning-500">Cicilan</p>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium whitespace-nowrap text-gray-800 dark:text-white/90">{{ formatRupiah(payAmounts[item.id]) }}</span>
-                    <button @click="toggleItem(item.id)" class="text-gray-400 hover:text-error-500" title="Hapus dari pembayaran">
-                      <X class="h-4 w-4" />
-                    </button>
-                  </div>
-                </li>
-              </ul>
-
-              <div class="flex items-end justify-between border-t border-dashed border-gray-200 pt-4 dark:border-gray-800">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Total Bayar</span>
-                <span class="text-2xl font-bold text-brand-600 dark:text-brand-400">{{ formatRupiah(totalToPay) }}</span>
-              </div>
-
-              <!-- Method -->
-              <div>
-                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-400">Metode Pembayaran</label>
-                <div class="grid grid-cols-1 gap-2">
-                  <button
-                    v-for="method in paymentMethods"
-                    :key="method.id"
-                    @click="selectedMethod = method.id"
-                    class="flex items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm transition"
-                    :class="
-                      selectedMethod === method.id
-                        ? 'border-brand-500 bg-brand-50 text-brand-700 ring-3 ring-brand-500/10 dark:bg-brand-500/10 dark:text-brand-300'
-                        : 'border-gray-200 text-gray-700 hover:border-gray-300 dark:border-gray-800 dark:text-gray-300 dark:hover:border-gray-700'
-                    "
-                  >
-                    <component :is="methodIcon(method.code)" class="h-5 w-5 shrink-0" />
-                    <span class="flex-1 font-medium">{{ method.name }}</span>
-                    <Check v-if="selectedMethod === method.id" class="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-
-              <!-- Cash received -->
-              <div v-if="isCash" class="rounded-xl bg-gray-50 p-4 dark:bg-white/[0.02]">
-                <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">Uang Diterima</label>
-                <div class="relative">
-                  <span class="absolute top-1/2 left-4 -translate-y-1/2 text-sm text-gray-500">Rp</span>
-                  <input type="number" min="0" step="1000" v-model.number="cashReceived" placeholder="0" :class="[inputClass, 'pl-11']" />
-                </div>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  <button
-                    v-for="(amount, index) in cashSuggestions"
-                    :key="amount"
-                    @click="cashReceived = amount"
-                    class="rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset transition"
-                    :class="cashReceived === amount ? 'bg-brand-500 text-white ring-brand-500' : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-100 dark:bg-gray-900 dark:text-gray-300 dark:ring-gray-700'"
-                  >
-                    {{ index === 0 ? 'Uang pas' : formatRupiah(amount) }}
-                  </button>
-                </div>
-                <div v-if="cashReceived" class="mt-3 flex items-center justify-between text-sm">
-                  <span class="text-gray-600 dark:text-gray-400">{{ change >= 0 ? 'Kembalian' : 'Kurang' }}</span>
-                  <span class="text-lg font-semibold" :class="change >= 0 ? 'text-success-600 dark:text-success-500' : 'text-error-600 dark:text-error-500'">
-                    {{ formatRupiah(Math.abs(change)) }}
-                  </span>
-                </div>
-              </div>
-
-              <p v-else-if="selectedMethodObj" class="flex gap-2 rounded-lg bg-blue-light-50 p-3 text-xs text-blue-light-700 dark:bg-blue-light-500/10 dark:text-blue-light-500">
-                <CircleAlert class="h-4 w-4 shrink-0" />
-                Pastikan dana sudah masuk ke rekening sekolah. Catat nomor referensi di kolom catatan.
-              </p>
-
-              <!-- Notes -->
-              <div>
-                <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">Catatan <span class="font-normal text-gray-400">(opsional)</span></label>
-                <textarea
-                  v-model="notes"
-                  rows="2"
-                  placeholder="Contoh: no. referensi transfer, nama penyetor..."
-                  class="w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30"
-                ></textarea>
-              </div>
-
-              <div>
-                <button
-                  @click="openConfirm"
-                  :disabled="!!blockingReason"
-                  class="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 py-3.5 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 dark:disabled:bg-brand-800"
-                >
-                  Lanjut ke Konfirmasi
-                  <ArrowRight class="h-4 w-4" />
-                </button>
-                <p v-if="blockingReason" class="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">{{ blockingReason }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Confirmation Modal -->
-    <div v-if="showConfirmModal" class="fixed inset-0 z-99999 flex items-center justify-center overflow-y-auto px-4 py-6">
-      <div class="fixed inset-0 bg-gray-400/50 backdrop-blur-sm" @click="closeConfirm"></div>
-      <div class="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl sm:p-8 dark:bg-gray-900">
-        <button @click="closeConfirm" class="absolute top-4 right-4 rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800">
-          <X class="h-5 w-5" />
-        </button>
-
-        <h3 class="text-xl font-semibold text-gray-800 dark:text-white/90">Konfirmasi Pembayaran</h3>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Periksa kembali sebelum disimpan. Transaksi yang tersimpan hanya bisa dibatalkan dengan persetujuan Kepala Sekolah.</p>
-
-        <div class="mt-5 space-y-4">
-          <div class="flex items-center gap-3 rounded-xl bg-gray-50 p-3 dark:bg-white/[0.03]">
-            <span class="flex h-10 w-10 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
-              {{ initials(selectedStudent.name) }}
-            </span>
-            <div>
-              <p class="font-medium text-gray-800 dark:text-white/90">{{ selectedStudent.name }}</p>
-              <p class="text-xs text-gray-500 dark:text-gray-400">{{ selectedStudent.class_room?.name }} · NIS {{ selectedStudent.nis || '-' }}</p>
-            </div>
-          </div>
-
-          <ul class="divide-y divide-gray-100 text-sm dark:divide-gray-800">
-            <li v-for="item in selectedItemList" :key="item.id" class="flex justify-between gap-3 py-2">
-              <span class="text-gray-700 dark:text-gray-300">
-                {{ item.payment_type?.name }} <span v-if="item.period">· {{ item.period }}</span>
-                <span v-if="isPartial(item)" class="ml-1 rounded bg-warning-50 px-1.5 py-0.5 text-xs text-warning-700 dark:bg-warning-500/15 dark:text-warning-500">Cicilan</span>
-              </span>
-              <span class="font-medium whitespace-nowrap text-gray-800 dark:text-white/90">{{ formatRupiah(payAmounts[item.id]) }}</span>
-            </li>
-          </ul>
-
-          <dl class="space-y-2 rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-800">
-            <div class="flex justify-between">
-              <dt class="text-gray-500 dark:text-gray-400">Metode</dt>
-              <dd class="font-medium text-gray-800 dark:text-white/90">{{ selectedMethodObj?.name }}</dd>
-            </div>
-            <div class="flex justify-between text-base">
-              <dt class="font-medium text-gray-700 dark:text-gray-300">Total Bayar</dt>
-              <dd class="font-bold text-brand-600 dark:text-brand-400">{{ formatRupiah(totalToPay) }}</dd>
-            </div>
-            <template v-if="isCash">
-              <div class="flex justify-between">
-                <dt class="text-gray-500 dark:text-gray-400">Uang Diterima</dt>
-                <dd class="text-gray-800 dark:text-white/90">{{ formatRupiah(cashReceived) }}</dd>
-              </div>
-              <div class="flex justify-between">
-                <dt class="text-gray-500 dark:text-gray-400">Kembalian</dt>
-                <dd class="font-semibold text-success-600 dark:text-success-500">{{ formatRupiah(change) }}</dd>
-              </div>
-            </template>
-            <div v-if="notes" class="flex justify-between gap-4">
-              <dt class="text-gray-500 dark:text-gray-400">Catatan</dt>
-              <dd class="text-right text-gray-800 dark:text-white/90">{{ notes }}</dd>
-            </div>
-          </dl>
-
-          <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 p-3 text-sm dark:border-gray-800" :class="confirmChecked ? 'border-success-300 bg-success-50 dark:border-success-700 dark:bg-success-500/10' : ''">
-            <input type="checkbox" v-model="confirmChecked" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
-            <span class="text-gray-700 dark:text-gray-300">
-              <template v-if="isCash">Saya sudah menerima uang tunai sebesar <strong>{{ formatRupiah(cashReceived) }}</strong> dan menyerahkan kembalian <strong>{{ formatRupiah(change) }}</strong>.</template>
-              <template v-else>Saya sudah memastikan dana sebesar <strong>{{ formatRupiah(totalToPay) }}</strong> diterima melalui {{ selectedMethodObj?.name }}.</template>
-            </span>
-          </label>
-
-          <p v-if="paymentError" class="flex gap-2 rounded-lg bg-error-50 p-3 text-sm text-error-700 dark:bg-error-500/10 dark:text-error-500">
-            <CircleAlert class="h-5 w-5 shrink-0" />
-            {{ paymentError }}
-          </p>
-        </div>
-
-        <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
-          <button
-            @click="closeConfirm"
-            :disabled="isProcessing"
-            class="flex flex-1 items-center justify-center gap-2 rounded-lg px-5 py-3 text-sm font-medium text-gray-700 ring-1 ring-inset ring-gray-300 transition hover:bg-gray-50 disabled:opacity-50 dark:text-gray-400 dark:ring-gray-700 dark:hover:bg-white/[0.03]"
-          >
-            <ArrowLeft class="h-4 w-4" />
-            Periksa Lagi
-          </button>
-          <button
-            @click="submitPayment"
-            :disabled="!confirmChecked || isProcessing"
-            class="flex flex-1 items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 py-3 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 dark:disabled:bg-brand-800"
-          >
-            <LoaderCircle v-if="isProcessing" class="h-4 w-4 animate-spin" />
-            <Check v-else class="h-4 w-4" />
-            {{ isProcessing ? 'Memproses...' : 'Ya, Proses Pembayaran' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Success Modal -->
-    <div v-if="showSuccessModal" class="fixed inset-0 z-99999 flex items-center justify-center px-4">
-      <div class="fixed inset-0 bg-gray-400/50 backdrop-blur-sm"></div>
-      <div class="relative w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl dark:bg-gray-900">
-        <div class="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500">
-          <CircleCheckBig class="h-9 w-9" />
-        </div>
-
-        <h3 class="text-2xl font-semibold text-gray-800 dark:text-white/90">Pembayaran Berhasil</h3>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ successPayment?.transaction_number }}</p>
-
-        <p class="mt-4 text-3xl font-bold text-gray-800 dark:text-white/90">{{ formatRupiah(successPayment?.total_amount) }}</p>
-
-        <div v-if="successChange > 0" class="mt-4 rounded-xl bg-success-50 p-4 dark:bg-success-500/10">
-          <p class="text-sm text-success-700 dark:text-success-500">Serahkan kembalian</p>
-          <p class="text-2xl font-bold text-success-700 dark:text-success-500">{{ formatRupiah(successChange) }}</p>
-        </div>
-
-        <div class="mt-6 flex flex-col gap-3">
-          <button @click="printReceipt" class="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-brand-600">
-            <Printer class="h-5 w-5" />
-            Cetak Kuitansi
-          </button>
-          <button
-            @click="resetKasir"
-            class="flex w-full items-center justify-center rounded-lg px-5 py-3 text-sm font-medium text-gray-700 ring-1 ring-inset ring-gray-300 transition hover:bg-gray-50 dark:text-gray-400 dark:ring-gray-700 dark:hover:bg-white/[0.03]"
-          >
-            Transaksi Baru
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Open Session Modal -->
-    <div v-if="showOpenSessionModal" class="fixed inset-0 z-99999 flex items-center justify-center px-4">
-      <div class="fixed inset-0 bg-gray-400/50 backdrop-blur-sm"></div>
-      <div class="relative w-full max-w-md rounded-2xl bg-white p-8 shadow-xl dark:bg-gray-900">
-        <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400">
-          <Clock class="h-7 w-7" />
-        </div>
-        <h3 class="text-center text-xl font-semibold text-gray-800 dark:text-white/90">Buka Sesi Kasir</h3>
-        <p class="mt-1 mb-6 text-center text-sm text-gray-500 dark:text-gray-400">Hitung uang modal di laci, lalu masukkan jumlahnya sebagai saldo awal.</p>
-
-        <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">Saldo Awal (Tunai)</label>
-        <div class="relative">
-          <span class="absolute top-1/2 left-4 -translate-y-1/2 text-sm text-gray-500">Rp</span>
-          <input type="number" min="0" v-model.number="startingBalance" @keydown.enter="openSession" placeholder="0" :class="[inputClass, 'pl-11']" />
-        </div>
-
-        <p v-if="sessionError" class="mt-3 text-sm text-error-600 dark:text-error-500">{{ sessionError }}</p>
-
-        <button
-          @click="openSession"
-          :disabled="isSubmittingSession || !isStartingBalanceValid"
-          class="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 dark:disabled:bg-brand-800"
-        >
-          <LoaderCircle v-if="isSubmittingSession" class="h-4 w-4 animate-spin" />
-          {{ isSubmittingSession ? 'Memproses...' : 'Buka Kasir' }}
-        </button>
-      </div>
-    </div>
-
-    <!-- Close Session Modal -->
-    <div v-if="showCloseSessionModal && sessionSummary" class="fixed inset-0 z-99999 flex items-center justify-center px-4">
-      <div class="fixed inset-0 bg-gray-400/50 backdrop-blur-sm" @click="showCloseSessionModal = false"></div>
-      <div class="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl sm:p-8 dark:bg-gray-900">
-        <h3 class="text-xl font-semibold text-gray-800 dark:text-white/90">Tutup Sesi Kasir</h3>
-        <p class="mt-1 mb-5 text-sm text-gray-500 dark:text-gray-400">Hitung uang fisik di laci dan cocokkan dengan catatan sistem.</p>
-
-        <dl class="mb-5 space-y-2 rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-800">
-          <div class="flex justify-between">
-            <dt class="text-gray-500 dark:text-gray-400">Saldo Awal</dt>
-            <dd class="text-gray-800 dark:text-white/90">{{ formatRupiah(sessionSummary.session.starting_balance) }}</dd>
-          </div>
-          <div class="flex justify-between">
-            <dt class="text-gray-500 dark:text-gray-400">Penerimaan Tunai</dt>
-            <dd class="text-success-600 dark:text-success-500">+ {{ formatRupiah(sessionSummary.total_cash_payments) }}</dd>
-          </div>
-          <div class="flex justify-between border-t border-gray-100 pt-2 text-base dark:border-gray-800">
-            <dt class="font-medium text-gray-700 dark:text-gray-300">Seharusnya di Laci</dt>
-            <dd class="font-bold text-brand-600 dark:text-brand-400">{{ formatRupiah(sessionSummary.expected_balance) }}</dd>
-          </div>
-        </dl>
-
-        <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">Uang Fisik di Laci</label>
-        <div class="relative">
-          <span class="absolute top-1/2 left-4 -translate-y-1/2 text-sm text-gray-500">Rp</span>
-          <input type="number" min="0" v-model.number="actualBalance" placeholder="Masukkan hasil hitung uang..." :class="[inputClass, 'pl-11']" />
-        </div>
-
-        <template v-if="typeof actualBalance === 'number'">
-          <p v-if="closeDifference === 0" class="mt-3 flex items-center gap-2 text-sm text-success-600 dark:text-success-500">
-            <CircleCheckBig class="h-4 w-4" />
-            Kas cocok, tidak ada selisih.
-          </p>
-          <div v-else class="mt-3 rounded-xl bg-warning-50 p-4 dark:bg-warning-500/10">
-            <p class="mb-2 text-sm font-medium text-warning-700 dark:text-warning-500">
-              Selisih kas {{ closeDifference > 0 ? 'lebih' : 'kurang' }} {{ formatRupiah(Math.abs(closeDifference)) }}
-            </p>
-            <label class="mb-1.5 block text-sm text-gray-700 dark:text-gray-300">Wajib isi alasan selisih</label>
-            <textarea
-              v-model="closeNotes"
-              rows="2"
-              placeholder="Jelaskan alasan selisih..."
-              class="w-full rounded-lg border border-warning-300 bg-white px-4 py-2.5 text-sm text-gray-800 focus:outline-hidden focus:ring-3 focus:ring-warning-500/10 dark:border-warning-700 dark:bg-gray-900 dark:text-white/90"
-            ></textarea>
-          </div>
-        </template>
-
-        <p v-if="sessionError" class="mt-3 text-sm text-error-600 dark:text-error-500">{{ sessionError }}</p>
-
-        <div class="mt-6 flex gap-3">
-          <button
-            @click="showCloseSessionModal = false"
-            class="flex-1 rounded-lg px-5 py-3 text-sm font-medium text-gray-700 ring-1 ring-inset ring-gray-300 transition hover:bg-gray-50 dark:text-gray-400 dark:ring-gray-700 dark:hover:bg-white/[0.03]"
-          >
-            Batal
-          </button>
-          <button
-            @click="closeSession"
-            :disabled="isSubmittingSession || typeof actualBalance !== 'number' || (closeDifference !== 0 && !closeNotes)"
-            class="flex flex-1 items-center justify-center gap-2 rounded-lg bg-error-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-error-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <LoaderCircle v-if="isSubmittingSession" class="h-4 w-4 animate-spin" />
-            {{ isSubmittingSession ? 'Menutup...' : 'Tutup Kasir' }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>

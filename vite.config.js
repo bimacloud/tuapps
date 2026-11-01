@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
-import { bunny } from 'laravel-vite-plugin/fonts';
 import tailwindcss from '@tailwindcss/vite';
 import vue from '@vitejs/plugin-vue';
 import vueJsx from '@vitejs/plugin-vue-jsx';
@@ -11,11 +10,6 @@ export default defineConfig({
         laravel({
             input: ['resources/js/main.ts'],
             refresh: true,
-            fonts: [
-                bunny('Instrument Sans', {
-                    weights: [400, 500, 600],
-                }),
-            ],
         }),
         tailwindcss(),
         vue({
@@ -28,6 +22,10 @@ export default defineConfig({
         }),
         vueJsx(),
     ],
+    build: {
+        // ApexCharts alone is ~900 kB; it is loaded lazily on the principal's dashboard only.
+        chunkSizeWarningLimit: 1000,
+    },
     server: {
         watch: {
             ignored: ['**/storage/framework/views/**'],

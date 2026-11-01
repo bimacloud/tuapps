@@ -2,34 +2,32 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Foundation\Testing\WithFaker;
-use Tests\TestCase;
-use App\Models\User;
 use App\Models\AcademicYear;
-use App\Models\Student;
 use App\Models\ClassRoom;
 use App\Models\Major;
-use Spatie\Permission\Models\Role;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
 
 class MasterDataTest extends TestCase
 {
     use RefreshDatabase;
 
     protected $kepsek;
-    protected $bendahara;
+
+    protected $administrasi;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->artisan('db:seed'); // Run DatabaseSeeder to setup roles & permissions
 
         $this->kepsek = User::factory()->create();
         $this->kepsek->assignRole('Kepala Sekolah');
 
-        $this->bendahara = User::factory()->create();
-        $this->bendahara->assignRole('Bendahara');
+        $this->administrasi = User::factory()->create();
+        $this->administrasi->assignRole('Administrasi');
     }
 
     public function test_kepsek_can_view_academic_years()
@@ -38,13 +36,13 @@ class MasterDataTest extends TestCase
             'name' => '2024/2025',
             'start_date' => '2024-07-01',
             'end_date' => '2025-06-30',
-            'is_active' => true
+            'is_active' => true,
         ]);
 
         $response = $this->actingAs($this->kepsek, 'sanctum')->getJson('/api/v1/academic-years');
-        
+
         $response->assertStatus(200)
-                 ->assertJsonCount(1, 'data');
+            ->assertJsonCount(1, 'data');
     }
 
     public function test_kepsek_cannot_create_academic_year()
@@ -53,21 +51,21 @@ class MasterDataTest extends TestCase
             'name' => '2025/2026',
             'start_date' => '2025-07-01',
             'end_date' => '2026-06-30',
-            'is_active' => true
+            'is_active' => true,
         ]);
-        
+
         $response->assertStatus(403);
     }
 
-    public function test_bendahara_can_create_academic_year()
+    public function test_administrasi_can_create_academic_year()
     {
-        $response = $this->actingAs($this->bendahara, 'sanctum')->postJson('/api/v1/academic-years', [
+        $response = $this->actingAs($this->administrasi, 'sanctum')->postJson('/api/v1/academic-years', [
             'name' => '2025/2026',
             'start_date' => '2025-07-01',
             'end_date' => '2026-06-30',
-            'is_active' => true
+            'is_active' => true,
         ]);
-        
+
         $response->assertStatus(201);
         $this->assertDatabaseHas('academic_years', ['name' => '2025/2026']);
     }
@@ -78,16 +76,16 @@ class MasterDataTest extends TestCase
             'name' => '2024/2025',
             'start_date' => '2024-07-01',
             'end_date' => '2025-06-30',
-            'is_active' => true
+            'is_active' => true,
         ]);
 
-        $response = $this->actingAs($this->bendahara, 'sanctum')->postJson('/api/v1/academic-years', [
+        $response = $this->actingAs($this->administrasi, 'sanctum')->postJson('/api/v1/academic-years', [
             'name' => '2025/2026',
             'start_date' => '2025-07-01',
             'end_date' => '2026-06-30',
-            'is_active' => true
+            'is_active' => true,
         ]);
-        
+
         $response->assertStatus(201);
 
         $year1->refresh();
@@ -101,19 +99,19 @@ class MasterDataTest extends TestCase
             'name' => '2024/2025',
             'start_date' => '2024-07-01',
             'end_date' => '2025-06-30',
-            'is_active' => false // must not be active to test relation only
+            'is_active' => false, // must not be active to test relation only
         ]);
 
         ClassRoom::create([
             'name' => 'X TJKT',
             'major_id' => $major->id,
             'academic_year_id' => $year->id,
-            'grade' => 'X'
+            'grade' => 'X',
         ]);
 
-        $response = $this->actingAs($this->bendahara, 'sanctum')->deleteJson('/api/v1/academic-years/' . $year->id);
-        
+        $response = $this->actingAs($this->administrasi, 'sanctum')->deleteJson('/api/v1/academic-years/'.$year->id);
+
         $response->assertStatus(422)
-                 ->assertJson(['message' => 'Tahun Pelajaran tidak dapat dihapus karena sudah digunakan di data kelas']);
+            ->assertJson(['message' => 'Tahun Pelajaran tidak dapat dihapus karena sudah digunakan di data kelas']);
     }
 }

@@ -3,14 +3,16 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Student;
+use App\Models\ClassRoom;
 use App\Models\Invoice;
-use App\Models\PaymentMethod;
 use App\Models\Payment;
+use App\Models\PaymentMethod;
+use App\Models\Setting;
+use App\Models\Student;
+use App\Services\PaymentCardService;
 use App\Services\PaymentService;
 use Exception;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
 
 class PaymentController extends Controller
 {
@@ -24,7 +26,7 @@ class PaymentController extends Controller
     public function searchStudents(Request $request)
     {
         $query = $request->get('q');
-        
+
         if (empty($query)) {
             return response()->json(['data' => []]);
         }
@@ -33,8 +35,8 @@ class PaymentController extends Controller
             ->where('status', 'AKTIF')
             ->where(function ($q) use ($query) {
                 $q->where('nis', 'like', "%{$query}%")
-                  ->orWhere('nisn', 'like', "%{$query}%")
-                  ->orWhere('name', 'like', "%{$query}%");
+                    ->orWhere('nisn', 'like', "%{$query}%")
+                    ->orWhere('name', 'like', "%{$query}%");
             })
             // Only students who have unpaid invoices
             ->whereHas('invoices', function ($q) {
@@ -49,9 +51,9 @@ class PaymentController extends Controller
     public function studentInvoices($studentId)
     {
         $invoices = Invoice::with(['academicYear', 'items' => function ($q) {
-                $q->whereIn('status', ['BELUM BAYAR', 'SEBAGIAN'])
-                  ->with('paymentType');
-            }])
+            $q->whereIn('status', ['BELUM BAYAR', 'SEBAGIAN'])
+                ->with('paymentType');
+        }])
             ->where('student_id', $studentId)
             ->whereIn('status', ['BELUM BAYAR', 'SEBAGIAN'])
             ->get();
@@ -62,6 +64,7 @@ class PaymentController extends Controller
     public function paymentMethods()
     {
         $methods = PaymentMethod::where('is_active', true)->get();
+
         return response()->json(['data' => $methods]);
     }
 
@@ -73,20 +76,20 @@ class PaymentController extends Controller
             'items' => 'required|array|min:1',
             'items.*.invoice_item_id' => 'required|exists:invoice_items,id',
             'items.*.amount' => 'required|numeric|min:1',
-            'notes' => 'nullable|string'
+            'notes' => 'nullable|string',
         ]);
 
         try {
             $payment = $this->paymentService->processPayment($request->all());
-            
+
             return response()->json([
                 'message' => 'Pembayaran berhasil diproses',
-                'data' => $payment
+                'data' => $payment,
             ], 201);
-            
+
         } catch (Exception $e) {
             return response()->json([
-                'message' => 'Gagal memproses pembayaran: ' . $e->getMessage()
+                'message' => 'Gagal memproses pembayaran: '.$e->getMessage(),
             ], 422);
         }
     }
@@ -100,10 +103,10 @@ class PaymentController extends Controller
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('transaction_number', 'like', "%{$search}%")
-                  ->orWhereHas('student', function ($sq) use ($search) {
-                      $sq->where('name', 'like', "%{$search}%")
-                         ->orWhere('nis', 'like', "%{$search}%");
-                  });
+                    ->orWhereHas('student', function ($sq) use ($search) {
+                        $sq->where('name', 'like', "%{$search}%")
+                            ->orWhere('nis', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -116,23 +119,42 @@ class PaymentController extends Controller
         }
 
         $payments = $query->paginate(15);
+
         return response()->json($payments);
     }
 
-    public function receipt($id)
+    public function receipt($id, PaymentCardService $paymentCardService)
     {
         $payment = Payment::with([
-            'student.classRoom.major', 
-            'paymentMethod', 
+            'student.classRoom.major',
+            'paymentMethod',
             'cashier',
-            'items.invoiceItem.paymentType'
+            'items.invoiceItem.paymentType',
         ])->findOrFail($id);
 
-        $settings = \App\Models\Setting::pluck('value', 'key');
+        $settings = Setting::pluck('value', 'key');
 
         return response()->json([
             'data' => $payment,
-            'settings' => $settings
+            'settings' => $settings,
+            'card_lines' => $paymentCardService->linesForPayment($payment),
+        ]);
+    }
+
+    /**
+     * Identity data for printing blank payment cards for every active student in a class.
+     */
+    public function classCards(Request $request, PaymentCardService $paymentCardService)
+    {
+        $validated = $request->validate([
+            'class_id' => 'required|integer|exists:classes,id',
+            'academic_year_id' => 'nullable|integer|exists:academic_years,id',
+        ]);
+
+        $classRoom = ClassRoom::findOrFail($validated['class_id']);
+
+        return response()->json([
+            'data' => $paymentCardService->blankCardsForClass($classRoom, $validated['academic_year_id'] ?? null),
         ]);
     }
 
@@ -140,14 +162,14 @@ class PaymentController extends Controller
     {
         // Administrasi Bulanan (July to June)
         // Administrasi Semester/Tahunan (Bebas)
-        
+
         $invoices = Invoice::with(['academicYear', 'items.paymentType'])
             ->where('student_id', $studentId)
             ->get();
-            
+
         $bulanan = [];
         $tahunan = [];
-        
+
         foreach ($invoices as $invoice) {
             foreach ($invoice->items as $item) {
                 if ($item->paymentType->type === 'BULANAN') {
@@ -157,12 +179,26 @@ class PaymentController extends Controller
                 }
             }
         }
-        
+
         return response()->json([
             'data' => [
                 'bulanan' => $bulanan,
-                'tahunan' => $tahunan
-            ]
+                'tahunan' => $tahunan,
+            ],
+        ]);
+    }
+
+    /**
+     * Data for the printable "Bukti Pembayaran" card (monthly + semester/annual) of one academic year.
+     */
+    public function studentCard(Request $request, Student $student, PaymentCardService $paymentCardService)
+    {
+        $validated = $request->validate([
+            'academic_year_id' => 'nullable|integer|exists:academic_years,id',
+        ]);
+
+        return response()->json([
+            'data' => $paymentCardService->build($student, $validated['academic_year_id'] ?? null),
         ]);
     }
 }

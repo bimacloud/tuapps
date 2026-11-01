@@ -1,211 +1,311 @@
+<template>
+  <AdminLayout>
+    <PageHeader
+      title="Persetujuan"
+      description="Permintaan dari bendahara yang menunggu keputusan Kepala Sekolah. Setiap keputusan tercatat di Audit Log."
+    />
+
+    <section v-if="loading" class="panel">
+      <DataState state="loading" message="Mengambil daftar permintaan." />
+    </section>
+    <section v-else-if="loadError" class="panel">
+      <DataState state="error" :message="loadError">
+        <button type="button" class="btn btn-secondary" @click="fetchData()">Coba lagi</button>
+      </DataState>
+    </section>
+
+    <template v-else>
+      <section aria-labelledby="pending-title">
+        <h2 id="pending-title" class="mb-3 text-2xl font-bold">
+          Menunggu keputusan
+          <span class="font-sans text-base font-semibold text-tinta-2">({{ pendingApprovals.length }})</span>
+        </h2>
+
+        <div v-if="pendingApprovals.length === 0" class="panel">
+          <DataState
+            state="empty"
+            compact
+            title="Tidak ada permintaan yang menunggu."
+            message="Permintaan baru muncul di sini setelah bendahara mengajukan pembatalan pembayaran dari Riwayat Pembayaran."
+          >
+            <button type="button" class="btn btn-secondary" @click="fetchData()">Muat ulang</button>
+          </DataState>
+        </div>
+
+        <ul v-else class="space-y-4">
+          <li v-for="approval in pendingApprovals" :key="approval.id" class="panel px-5 py-5 sm:px-6">
+            <article :aria-labelledby="`approval-${approval.id}-title`">
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <h3 :id="`approval-${approval.id}-title`" class="text-xl font-bold leading-tight">
+                    {{ typeLabel(approval.type).title }}
+                  </h3>
+                  <p class="mt-1 text-sm text-tinta-2">
+                    Diajukan {{ approval.requester?.name || 'pengguna tidak dikenal' }}, {{ formatDateTime(approval.created_at) }}
+                  </p>
+                </div>
+                <StatusTag :status="approval.status" />
+              </div>
+
+              <dl class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 rounded-[var(--radius-kontrol)] bg-krem px-4 py-3 sm:grid-cols-3">
+                <template v-for="row in recordDetails(approval)" :key="row.label">
+                  <div class="min-w-0">
+                    <dt class="text-sm text-tinta-2">{{ row.label }}</dt>
+                    <dd class="break-words font-semibold" :class="row.money ? 'font-display text-xl tabular-nums' : ''">
+                      {{ row.value }}
+                    </dd>
+                  </div>
+                </template>
+              </dl>
+
+              <div class="mt-4">
+                <p class="text-sm font-semibold">Alasan pemohon</p>
+                <p class="mt-1 whitespace-pre-line">{{ approval.reason || 'Pemohon tidak menulis alasan.' }}</p>
+              </div>
+
+              <p
+                v-if="isOwnRequest(approval)"
+                class="mt-4 rounded-[var(--radius-kontrol)] bg-amber-muda px-3 py-2 text-sm font-semibold"
+              >
+                Permintaan ini Anda ajukan sendiri, jadi keputusannya harus diambil akun Kepala Sekolah lain.
+              </p>
+
+              <div v-else class="mt-5 border-t border-garis pt-4">
+                <label :for="`note-${approval.id}`" class="field-label">Catatan keputusan</label>
+                <textarea
+                  :id="`note-${approval.id}`"
+                  v-model="notes[approval.id]"
+                  rows="2"
+                  class="field-input"
+                  :aria-invalid="noteErrors[approval.id] ? 'true' : undefined"
+                  :aria-describedby="noteErrors[approval.id] ? `note-${approval.id}-error` : `note-${approval.id}-hint`"
+                  @input="noteErrors[approval.id] = ''"
+                ></textarea>
+                <p v-if="noteErrors[approval.id]" :id="`note-${approval.id}-error`" class="field-error">
+                  {{ noteErrors[approval.id] }}
+                </p>
+                <p v-else :id="`note-${approval.id}-hint`" class="field-hint">
+                  Boleh kosong saat menyetujui. Wajib diisi saat menolak.
+                </p>
+
+                <div class="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    class="btn btn-danger"
+                    :disabled="busyId !== null"
+                    @click="rejectRequest(approval)"
+                  >
+                    {{ busyId === approval.id && busyAction === 'reject' ? 'Menolak...' : typeLabel(approval.type).reject }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="busyId !== null"
+                    @click="approveRequest(approval)"
+                  >
+                    {{ busyId === approval.id && busyAction === 'approve' ? 'Menyetujui...' : typeLabel(approval.type).approve }}
+                  </button>
+                </div>
+              </div>
+            </article>
+          </li>
+        </ul>
+      </section>
+
+      <section class="mt-10" aria-labelledby="history-title">
+        <h2 id="history-title" class="mb-3 text-2xl font-bold">Riwayat keputusan</h2>
+        <div class="panel overflow-hidden">
+          <DataState
+            v-if="historyApprovals.length === 0"
+            state="empty"
+            compact
+            title="Belum ada keputusan."
+            message="Permintaan yang sudah disetujui atau ditolak akan tercatat di sini."
+          />
+          <div v-else class="overflow-x-auto">
+            <table class="table-data">
+              <thead>
+                <tr>
+                  <th scope="col">Diputuskan</th>
+                  <th scope="col">Permintaan</th>
+                  <th scope="col">Pemohon</th>
+                  <th scope="col">Keputusan</th>
+                  <th scope="col">Oleh</th>
+                  <th scope="col" class="min-w-[14rem]">Catatan</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="approval in historyApprovals" :key="approval.id">
+                  <td class="whitespace-nowrap">{{ formatDateTime(approval.reviewed_at) }}</td>
+                  <td>
+                    <span class="font-semibold">{{ typeLabel(approval.type).title }}</span>
+                    <span v-if="recordSummary(approval)" class="block text-sm text-tinta-2">{{ recordSummary(approval) }}</span>
+                  </td>
+                  <td>{{ approval.requester?.name || '-' }}</td>
+                  <td><StatusTag :status="approval.status" /></td>
+                  <td>{{ approval.approver?.name || '-' }}</td>
+                  <td class="whitespace-pre-line">{{ approval.review_note || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </template>
+  </AdminLayout>
+</template>
+
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
+import { useAuthStore } from '@/stores/auth'
+import { useNotice } from '@/composables/useNotice'
+import { errorMessage, formatDateTime, formatRupiah } from '@/utils/format'
+import AdminLayout from '@/components/layout/AdminLayout.vue'
+import PageHeader from '@/components/app/PageHeader.vue'
+import DataState from '@/components/app/DataState.vue'
+import StatusTag from '@/components/app/StatusTag.vue'
 
-const approvals = ref<any[]>([])
+type Approval = Record<string, any>
+
+const authStore = useAuthStore()
+const notice = useNotice()
+
+const approvals = ref<Approval[]>([])
 const loading = ref(true)
+const loadError = ref('')
+const notes = reactive<Record<number, string>>({})
+const noteErrors = reactive<Record<number, string>>({})
+const busyId = ref<number | null>(null)
+const busyAction = ref<'approve' | 'reject' | null>(null)
 
-const selectedApproval = ref<any>(null)
-const showReviewModal = ref(false)
-const reviewNote = ref('')
-const isSubmitting = ref(false)
+const typeLabels: Record<string, { title: string; approve: string; reject: string }> = {
+  BATAL_BAYAR: { title: 'Pembatalan pembayaran', approve: 'Setujui pembatalan', reject: 'Tolak pembatalan' },
+  UBAH_TARIF: { title: 'Perubahan tarif', approve: 'Setujui perubahan tarif', reject: 'Tolak perubahan tarif' },
+}
 
-const fetchData = async () => {
-  loading.value = true
+const typeLabel = (type: string) => {
+  const fallback = String(type || 'Permintaan').replace(/_/g, ' ').toLowerCase()
+  return typeLabels[type] ?? { title: fallback, approve: 'Setujui permintaan', reject: 'Tolak permintaan' }
+}
+
+/** What the request touches, taken only from the linked record the API returns. */
+const recordDetails = (approval: Approval) => {
+  const record = approval.record
+  if (!record) {
+    return [{ label: 'Data terkait', value: 'Data asli sudah tidak tersedia.', money: false }]
+  }
+  if (approval.type === 'BATAL_BAYAR') {
+    return [
+      { label: 'Nomor transaksi', value: record.transaction_number || '-', money: false },
+      { label: 'Jumlah dibayar', value: formatRupiah(record.total_amount), money: true },
+      { label: 'Tanggal bayar', value: formatDateTime(record.payment_date || record.created_at), money: false },
+    ]
+  }
+  if (record.amount !== undefined) {
+    return [{ label: 'Tarif saat ini', value: formatRupiah(record.amount), money: true }]
+  }
+  return [{ label: 'Nomor data', value: String(record.id ?? '-'), money: false }]
+}
+
+const recordSummary = (approval: Approval) => {
+  const record = approval.record
+  if (!record) return ''
+  if (approval.type === 'BATAL_BAYAR') {
+    return `${record.transaction_number || '-'}, ${formatRupiah(record.total_amount)}`
+  }
+  return record.amount !== undefined ? `Tarif ${formatRupiah(record.amount)}` : ''
+}
+
+const isOwnRequest = (approval: Approval) => {
+  const userId = (authStore.user as { id?: number } | null)?.id
+  return Boolean(userId) && approval.requester_id === userId
+}
+
+const pendingApprovals = computed(() =>
+  approvals.value
+    .filter((approval) => approval.status === 'PENDING')
+    .sort((first, second) => new Date(first.created_at).getTime() - new Date(second.created_at).getTime()),
+)
+
+const historyApprovals = computed(() => approvals.value.filter((approval) => approval.status !== 'PENDING'))
+
+/** After a decision the list refreshes silently so the page does not jump back to the loading state. */
+const fetchData = async (silent = false) => {
+  if (!silent) {
+    loading.value = true
+    loadError.value = ''
+  }
   try {
-    const res = await axios.get('/api/v1/approvals')
-    approvals.value = res.data.data
-  } catch (error) {
-    console.error('Error fetching approvals', error)
+    const response = await axios.get('/api/v1/approvals')
+    approvals.value = response.data.data || []
+  } catch (error: any) {
+    if (silent) {
+      notice.error(errorMessage(error, 'Daftar gagal dimuat ulang. Muat ulang halaman ini.'))
+      return
+    }
+    loadError.value =
+      error?.response?.status === 403
+        ? 'Daftar persetujuan hanya bisa dibuka akun Kepala Sekolah.'
+        : errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
   } finally {
     loading.value = false
   }
 }
 
-const formatDate = (dateString: string) => {
-  if (!dateString) return '-'
-  return new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(dateString))
-}
-
-const openReviewModal = (approval: any) => {
-  selectedApproval.value = approval
-  reviewNote.value = ''
-  showReviewModal.value = true
-}
-
-const approveRequest = async () => {
-  isSubmitting.value = true
+const decide = async (approval: Approval, action: 'approve' | 'reject', successMessage: string) => {
+  busyId.value = approval.id
+  busyAction.value = action
   try {
-    await axios.post(`/api/v1/approvals/${selectedApproval.value.id}/approve`, {
-      review_note: reviewNote.value
+    await axios.post(`/api/v1/approvals/${approval.id}/${action}`, {
+      review_note: notes[approval.id] || '',
     })
-    alert('Permintaan disetujui.')
-    showReviewModal.value = false
-    fetchData()
-  } catch (err: any) {
-    alert(err.response?.data?.message || 'Gagal menyetujui permintaan')
+    delete notes[approval.id]
+    notice.success(successMessage)
+    await fetchData(true)
+  } catch (error) {
+    notice.error(errorMessage(error, 'Keputusan gagal disimpan. Coba lagi.'))
   } finally {
-    isSubmitting.value = false
+    busyId.value = null
+    busyAction.value = null
   }
 }
 
-const rejectRequest = async () => {
-  if (!reviewNote.value) {
-    alert('Catatan review wajib diisi untuk penolakan.')
+const approveRequest = async (approval: Approval) => {
+  const label = typeLabel(approval.type)
+  const message =
+    approval.type === 'BATAL_BAYAR' && approval.record
+      ? `Pembayaran ${approval.record.transaction_number} sebesar ${formatRupiah(approval.record.total_amount)} dibatalkan dan tagihan siswa dibuka kembali. Keputusan ini tidak bisa diubah.`
+      : 'Permintaan ini disetujui dan tidak bisa diubah lagi.'
+
+  const confirmed = await notice.confirm({
+    title: `${label.approve}?`,
+    message,
+    confirmLabel: label.approve,
+  })
+  if (!confirmed) return
+
+  await decide(approval, 'approve', `${label.title} disetujui.`)
+}
+
+const rejectRequest = async (approval: Approval) => {
+  const label = typeLabel(approval.type)
+  if (!notes[approval.id]?.trim()) {
+    noteErrors[approval.id] = 'Tulis alasan penolakan dulu.'
+    document.getElementById(`note-${approval.id}`)?.focus()
     return
   }
-  isSubmitting.value = true
-  try {
-    await axios.post(`/api/v1/approvals/${selectedApproval.value.id}/reject`, {
-      review_note: reviewNote.value
-    })
-    alert('Permintaan ditolak.')
-    showReviewModal.value = false
-    fetchData()
-  } catch (err: any) {
-    alert(err.response?.data?.message || 'Gagal menolak permintaan')
-  } finally {
-    isSubmitting.value = false
-  }
+
+  const confirmed = await notice.confirm({
+    title: `${label.reject}?`,
+    message: 'Permintaan ditolak dan catatan Anda tersimpan di riwayat keputusan. Keputusan ini tidak bisa diubah.',
+    confirmLabel: label.reject,
+    danger: true,
+  })
+  if (!confirmed) return
+
+  await decide(approval, 'reject', `${label.title} ditolak.`)
 }
 
-const pendingApprovals = computed(() => {
-  return approvals.value.filter(a => a.status === 'PENDING')
-})
-
-const historyApprovals = computed(() => {
-  return approvals.value.filter(a => a.status !== 'PENDING')
-})
-
-onMounted(() => {
-  fetchData()
-})
+onMounted(() => fetchData())
 </script>
-
-<template>
-  <div>
-    <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <h2 class="text-title-md2 font-semibold text-black dark:text-white">Persetujuan (Approval)</h2>
-    </div>
-
-    <!-- Menunggu Persetujuan -->
-    <div class="rounded-sm border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark mb-8">
-      <div class="border-b border-stroke py-4 px-6.5 dark:border-strokedark">
-        <h3 class="font-medium text-black dark:text-white">
-          Menunggu Persetujuan
-        </h3>
-      </div>
-      <div class="p-4 md:p-6 xl:p-7.5">
-        <div class="overflow-x-auto">
-          <table class="w-full table-auto text-sm">
-            <thead>
-              <tr class="bg-gray-2 text-left dark:bg-meta-4">
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Tanggal</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Pemohon</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Jenis</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white w-1/3">Alasan</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white text-center">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="loading">
-                <td colspan="5" class="text-center py-8">Memuat data...</td>
-              </tr>
-              <tr v-else-if="pendingApprovals.length === 0">
-                <td colspan="5" class="text-center py-8 text-gray-500">Tidak ada permintaan yang menunggu.</td>
-              </tr>
-              <tr v-else v-for="approval in pendingApprovals" :key="approval.id" class="border-b border-stroke dark:border-strokedark">
-                <td class="py-4 px-4">{{ formatDate(approval.created_at) }}</td>
-                <td class="py-4 px-4">{{ approval.requester?.name }}</td>
-                <td class="py-4 px-4 font-medium">{{ approval.type.replace('_', ' ') }}</td>
-                <td class="py-4 px-4">{{ approval.reason }}</td>
-                <td class="py-4 px-4 text-center">
-                  <button @click="openReviewModal(approval)" class="inline-flex items-center justify-center rounded-md bg-primary py-2 px-4 text-center font-medium text-white hover:bg-opacity-90">
-                    Review
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- Riwayat Persetujuan -->
-    <div class="rounded-sm border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark">
-      <div class="border-b border-stroke py-4 px-6.5 dark:border-strokedark">
-        <h3 class="font-medium text-black dark:text-white">
-          Riwayat Keputusan
-        </h3>
-      </div>
-      <div class="p-4 md:p-6 xl:p-7.5">
-        <div class="overflow-x-auto">
-          <table class="w-full table-auto text-sm">
-            <thead>
-              <tr class="bg-gray-2 text-left dark:bg-meta-4">
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Tanggal</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Jenis</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white">Status</th>
-                <th class="py-4 px-4 font-medium text-black dark:text-white w-1/3">Catatan</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="historyApprovals.length === 0">
-                <td colspan="4" class="text-center py-8 text-gray-500">Belum ada riwayat.</td>
-              </tr>
-              <tr v-else v-for="approval in historyApprovals" :key="approval.id" class="border-b border-stroke dark:border-strokedark">
-                <td class="py-4 px-4">{{ formatDate(approval.reviewed_at) }}</td>
-                <td class="py-4 px-4 font-medium">{{ approval.type.replace('_', ' ') }}</td>
-                <td class="py-4 px-4">
-                  <span class="inline-flex rounded-full bg-opacity-10 py-1 px-3 text-xs font-medium" :class="approval.status === 'APPROVED' ? 'bg-success text-success' : 'bg-danger text-danger'">
-                    {{ approval.status }}
-                  </span>
-                </td>
-                <td class="py-4 px-4">{{ approval.review_note || '-' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- Review Modal -->
-    <div v-if="showReviewModal && selectedApproval" class="fixed inset-0 z-999999 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-      <div class="w-full max-w-lg rounded-lg bg-white p-8 dark:bg-boxdark shadow-lg border border-stroke dark:border-strokedark">
-        <h3 class="mb-4 text-xl font-bold text-black dark:text-white">Review {{ selectedApproval.type.replace('_', ' ') }}</h3>
-        
-        <div class="mb-4 space-y-2 text-sm bg-gray-2 dark:bg-meta-4 p-4 rounded">
-          <div class="flex justify-between border-b border-stroke dark:border-strokedark pb-2">
-            <span class="text-gray-500">Pemohon:</span>
-            <span class="font-medium text-black dark:text-white">{{ selectedApproval.requester?.name }}</span>
-          </div>
-          <div class="flex justify-between border-b border-stroke dark:border-strokedark pb-2">
-            <span class="text-gray-500">Waktu:</span>
-            <span class="font-medium text-black dark:text-white">{{ formatDate(selectedApproval.created_at) }}</span>
-          </div>
-          <div>
-            <span class="block text-gray-500 mb-1">Alasan Pemohon:</span>
-            <p class="font-medium text-black dark:text-white italic">"{{ selectedApproval.reason }}"</p>
-          </div>
-        </div>
-
-        <div class="mb-6">
-          <label class="mb-2.5 block text-black dark:text-white font-medium">Catatan Keputusan (Opsional untuk setuju, Wajib untuk tolak)</label>
-          <textarea v-model="reviewNote" rows="3" class="w-full rounded border-[1.5px] border-stroke bg-transparent py-3 px-5 outline-none transition focus:border-primary active:border-primary dark:border-form-strokedark dark:bg-form-input" placeholder="Tambahkan pesan atau alasan..."></textarea>
-        </div>
-        
-        <div class="flex justify-end gap-3">
-          <button @click="showReviewModal = false" class="inline-flex items-center justify-center rounded border border-stroke py-2 px-6 font-medium text-black hover:bg-gray dark:border-strokedark dark:text-white transition">
-            Tutup
-          </button>
-          <button @click="rejectRequest" :disabled="isSubmitting || !reviewNote" class="inline-flex items-center justify-center rounded bg-danger py-2 px-6 font-medium text-white hover:bg-opacity-90 transition disabled:opacity-50">
-            Tolak
-          </button>
-          <button @click="approveRequest" :disabled="isSubmitting" class="inline-flex items-center justify-center rounded bg-success py-2 px-6 font-medium text-white hover:bg-opacity-90 transition disabled:opacity-50">
-            Setujui
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>

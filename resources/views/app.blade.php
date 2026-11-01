@@ -3,12 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistem Pembayaran SMK</title>
-    
-    <!-- Vite Assets -->
+    <meta name="theme-color" content="#2A1A0E">
+    <title>Pembayaran Sekolah</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     @vite(['resources/js/main.ts'])
 </head>
-<body class="bg-slate-50 font-sans text-slate-900 antialiased">
+<body>
     <div id="app"></div>
 </body>
 </html>
