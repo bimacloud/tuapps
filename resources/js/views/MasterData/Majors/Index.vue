@@ -4,7 +4,7 @@
       title="Jurusan"
       description="Kompetensi keahlian yang dipakai saat membuat kelas dan mencatat siswa."
     >
-      <template v-if="isBendahara" #actions>
+      <template v-if="canEditData" #actions>
         <button type="button" class="btn btn-primary" @click="openModal()">Tambah jurusan</button>
       </template>
     </PageHeader>
@@ -18,9 +18,9 @@
         v-else-if="items.length === 0"
         state="empty"
         title="Belum ada jurusan."
-        :message="isBendahara ? 'Tambahkan jurusan dulu supaya kelas dan siswa bisa dikelompokkan.' : 'Bendahara belum menambahkan jurusan.'"
+        :message="canEditData ? 'Tambahkan jurusan dulu supaya kelas dan siswa bisa dikelompokkan.' : 'Administrasi belum menambahkan jurusan.'"
       >
-        <button v-if="isBendahara" type="button" class="btn btn-primary" @click="openModal()">Tambah jurusan</button>
+        <button v-if="canEditData" type="button" class="btn btn-primary" @click="openModal()">Tambah jurusan</button>
       </DataState>
 
       <div v-else class="overflow-x-auto">
@@ -30,7 +30,7 @@
               <th scope="col" class="w-28">Kode</th>
               <th scope="col">Nama jurusan</th>
               <th scope="col" class="w-32">Status</th>
-              <th v-if="isBendahara" scope="col" class="w-40"><span class="sr-only">Aksi</span></th>
+              <th v-if="canEditData" scope="col" class="w-40"><span class="sr-only">Aksi</span></th>
             </tr>
           </thead>
           <tbody>
@@ -38,7 +38,7 @@
               <td class="font-display text-lg font-bold">{{ item.code }}</td>
               <td>{{ item.name }}</td>
               <td><StatusTag :status="Boolean(item.status)" /></td>
-              <td v-if="isBendahara" class="text-right">
+              <td v-if="canEditData" class="text-right">
                 <div class="flex justify-end gap-1">
                   <button type="button" class="btn btn-ghost btn-sm" @click="openModal(item)">
                     Ubah<span class="sr-only"> {{ item.name }}</span>
@@ -97,7 +97,7 @@ import BaseModal from '@/components/app/BaseModal.vue'
 
 const authStore = useAuthStore()
 const notice = useNotice()
-const isBendahara = computed(() => authStore.hasRole('Bendahara'))
+const canEditData = computed(() => authStore.hasRole('Administrasi'))
 
 const items = ref([])
 const loading = ref(true)

@@ -64,6 +64,7 @@ const { isMobileOpen, toggleMobileSidebar } = useSidebar()
 const menuGroups = computed(() => {
   const isKepsek = authStore.hasRole('Kepala Sekolah')
   const isBendahara = authStore.hasRole('Bendahara')
+  const isAdministrasi = authStore.hasRole('Administrasi')
   const groups: { title: string; items: NavItem[] }[] = []
 
   const harian: NavItem[] = [{ name: 'Beranda', path: '/', icon: 'beranda' }]
@@ -71,11 +72,15 @@ const menuGroups = computed(() => {
     harian.push({ name: 'Kasir', path: '/kasir', icon: 'kasir' })
     harian.push({ name: 'Riwayat Pembayaran', path: '/pembayaran', icon: 'riwayat' })
   }
-  harian.push({ name: 'Riwayat Kas', path: '/kasir/riwayat', icon: 'kas' })
+  if (isKepsek || isBendahara) {
+    harian.push({ name: 'Riwayat Kas', path: '/kasir/riwayat', icon: 'kas' })
+  }
   if (isKepsek) {
     harian.push({ name: 'Persetujuan', path: '/approvals', icon: 'persetujuan' })
   }
-  harian.push({ name: 'Laporan', path: '/reports/harian', icon: 'laporan' })
+  if (isKepsek || isBendahara) {
+    harian.push({ name: 'Laporan', path: '/reports/harian', icon: 'laporan' })
+  }
   groups.push({ title: 'Harian', items: harian })
 
   if (isBendahara) {
@@ -90,7 +95,7 @@ const menuGroups = computed(() => {
     })
   }
 
-  if (isKepsek || isBendahara) {
+  if (isKepsek || isBendahara || isAdministrasi) {
     groups.push({
       title: 'Data sekolah',
       items: [
@@ -106,7 +111,7 @@ const menuGroups = computed(() => {
   if (isKepsek) {
     sistem.push({ name: 'Audit Log', path: '/audit-logs', icon: 'audit' })
   }
-  if (isKepsek || isBendahara) {
+  if (isKepsek || isAdministrasi) {
     sistem.push({ name: 'Pengaturan', path: '/settings', icon: 'pengaturan' })
   }
   if (sistem.length) {

@@ -17,8 +17,8 @@ class StudentImportPreviewTest extends TestCase
 
     public function test_preview_marks_rows_with_unknown_class_as_invalid(): void
     {
-        $bendahara = User::factory()->create();
-        $bendahara->assignRole(Role::firstOrCreate(['name' => 'Bendahara']));
+        $administrasi = User::factory()->create();
+        $administrasi->assignRole(Role::firstOrCreate(['name' => 'Administrasi']));
 
         $academicYear = AcademicYear::create(['name' => '2026/2027', 'is_active' => true]);
         $major = Major::create(['name' => 'Teknik Komputer dan Jaringan', 'code' => 'TKJ']);
@@ -27,7 +27,7 @@ class StudentImportPreviewTest extends TestCase
         $csv = "nama_lengkap,kelas,nis\nSiswa Satu,X TKJ 1,2026101\nSiswa Dua,X TKJ 9,2026102\n";
         $file = UploadedFile::fake()->createWithContent('siswa.csv', $csv);
 
-        $response = $this->actingAs($bendahara)
+        $response = $this->actingAs($administrasi)
             ->postJson('/api/v1/students/import-preview', ['file' => $file]);
 
         $response->assertOk()

@@ -29,7 +29,8 @@
             <option v-for="classRoom in classesForYear" :key="classRoom.id" :value="classRoom.id">{{ classRoom.name }}</option>
           </select>
           <p v-if="!loadingOptions && selectedYearId && !classesForYear.length" class="field-hint">
-            Belum ada kelas di tahun ini. <router-link to="/master/classes" class="link">Tambah kelas</router-link>
+            Belum ada kelas di tahun ini. Minta Administrasi menambahkannya di menu
+            <router-link to="/master/classes" class="link">Kelas</router-link>.
           </p>
         </div>
       </section>

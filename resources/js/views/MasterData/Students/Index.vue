@@ -2,9 +2,13 @@
   <admin-layout>
     <PageHeader
       title="Data Siswa"
-      description="Cari siswa dengan nama, NIS, atau NISN. Rekap dan kartu pembayaran dibuka dari baris siswa."
+      :description="
+        canViewFinance
+          ? 'Cari siswa dengan nama, NIS, atau NISN. Rekap dan kartu pembayaran dibuka dari baris siswa.'
+          : 'Cari siswa dengan nama, NIS, atau NISN. Tambah satu per satu atau impor dari Excel.'
+      "
     >
-      <template v-if="isBendahara" #actions>
+      <template v-if="canEditData" #actions>
         <button type="button" class="btn btn-secondary" :disabled="exporting" @click="exportData">
           {{ exporting ? 'Menyiapkan file...' : 'Unduh data siswa' }}
         </button>
@@ -76,9 +80,9 @@
         v-else-if="items.length === 0"
         state="empty"
         title="Belum ada data siswa."
-        :message="isBendahara ? 'Tambahkan siswa satu per satu, atau impor sekaligus dari file Excel.' : 'Bendahara belum memasukkan data siswa.'"
+        :message="canEditData ? 'Tambahkan siswa satu per satu, atau impor sekaligus dari file Excel.' : 'Administrasi belum memasukkan data siswa.'"
       >
-        <template v-if="isBendahara">
+        <template v-if="canEditData">
           <button type="button" class="btn btn-primary" @click="openModal()">Tambah siswa</button>
           <button type="button" class="btn btn-secondary" @click="openImportModal">Impor dari Excel</button>
         </template>
@@ -125,13 +129,15 @@
                 <td><StatusTag :status="item.status" /></td>
                 <td class="text-right">
                   <div class="flex justify-end gap-1 whitespace-nowrap">
-                    <router-link :to="`/siswa/${item.id}/rekap`" class="btn btn-ghost btn-sm">
-                      Rekap<span class="sr-only"> pembayaran {{ item.name }}</span>
-                    </router-link>
-                    <router-link :to="`/siswa/${item.id}/kartu`" class="btn btn-ghost btn-sm">
-                      Kartu<span class="sr-only"> pembayaran {{ item.name }}</span>
-                    </router-link>
-                    <template v-if="isBendahara">
+                    <template v-if="canViewFinance">
+                      <router-link :to="`/siswa/${item.id}/rekap`" class="btn btn-ghost btn-sm">
+                        Rekap<span class="sr-only"> pembayaran {{ item.name }}</span>
+                      </router-link>
+                      <router-link :to="`/siswa/${item.id}/kartu`" class="btn btn-ghost btn-sm">
+                        Kartu<span class="sr-only"> pembayaran {{ item.name }}</span>
+                      </router-link>
+                    </template>
+                    <template v-if="canEditData">
                       <button type="button" class="btn btn-ghost btn-sm" @click="openModal(item)">
                         Ubah<span class="sr-only"> {{ item.name }}</span>
                       </button>
@@ -551,7 +557,8 @@ import BaseModal from '@/components/app/BaseModal.vue'
 
 const authStore = useAuthStore()
 const notice = useNotice()
-const isBendahara = computed(() => authStore.hasRole('Bendahara'))
+const canEditData = computed(() => authStore.hasRole('Administrasi'))
+const canViewFinance = computed(() => authStore.hasRole('Bendahara') || authStore.hasRole('Kepala Sekolah'))
 
 const statusOptions = [
   { value: 'AKTIF', label: 'Aktif' },

@@ -3,10 +3,10 @@
 namespace Database\Seeders;
 
 use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 class DatabaseSeeder extends Seeder
 {
@@ -16,7 +16,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // Reset cached roles and permissions
-        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
         // 1. Create Permissions
         $permissions = [
@@ -59,13 +59,10 @@ class DatabaseSeeder extends Seeder
         $kepsekRole->syncPermissions($kepsekPermissions);
 
         $bendaharaRole = Role::firstOrCreate(['name' => 'Bendahara']);
+        // Bendahara mengurus keuangan; data master hanya dilihat.
         $bendaharaPermissions = [
             'view_dashboard',
             'view_reports',
-            'manage_students',
-            'manage_classes',
-            'manage_majors',
-            'manage_academic_years',
             'manage_payment_types',
             'manage_payment_rates',
             'create_payment',
@@ -77,9 +74,19 @@ class DatabaseSeeder extends Seeder
         ];
         $bendaharaRole->syncPermissions($bendaharaPermissions);
 
+        // Administrasi menginput data siswa, kelas, jurusan, tahun pelajaran, dan identitas sekolah.
+        $administrasiRole = Role::firstOrCreate(['name' => 'Administrasi']);
+        $administrasiRole->syncPermissions([
+            'view_dashboard',
+            'manage_students',
+            'manage_classes',
+            'manage_majors',
+            'manage_academic_years',
+        ]);
+
         // 3. Create Users and Assign Roles
         $kepsek = User::firstOrCreate([
-            'email' => 'kepsek@smk.com'
+            'email' => 'kepsek@smk.com',
         ], [
             'name' => 'Kepala Sekolah',
             'password' => bcrypt('password'),
@@ -87,12 +94,20 @@ class DatabaseSeeder extends Seeder
         $kepsek->assignRole($kepsekRole);
 
         $bendahara = User::firstOrCreate([
-            'email' => 'bendahara@smk.com'
+            'email' => 'bendahara@smk.com',
         ], [
             'name' => 'Bendahara 1',
             'password' => bcrypt('password'),
         ]);
         $bendahara->assignRole($bendaharaRole);
+
+        $administrasi = User::firstOrCreate([
+            'email' => 'admin@smk.com',
+        ], [
+            'name' => 'Administrasi',
+            'password' => bcrypt('password'),
+        ]);
+        $administrasi->assignRole($administrasiRole);
 
         $this->call(PaymentMethodSeeder::class);
     }

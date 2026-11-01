@@ -77,7 +77,8 @@
               </select>
               <p v-if="fieldErrors.class_id" id="generate-class-error" class="field-error">{{ fieldErrors.class_id[0] }}</p>
               <p v-else-if="classes.length === 0" id="generate-class-hint" class="field-hint">
-                Belum ada kelas. Tambahkan di menu <router-link to="/master/classes" class="link">Kelas</router-link>.
+                Belum ada kelas. Minta Administrasi menambahkannya di menu
+                <router-link to="/master/classes" class="link">Kelas</router-link>.
               </p>
             </div>
 

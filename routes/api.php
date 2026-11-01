@@ -42,7 +42,22 @@ Route::prefix('v1')->group(function () {
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
         });
 
-        // Master Data - View access for both Kepsek and Bendahara
+        // Master Data - View access for every staff role
+        Route::middleware('role:Kepala Sekolah|Bendahara|Administrasi')->group(function () {
+            Route::apiResource('academic-years', AcademicYearController::class)->only(['index', 'show']);
+            Route::apiResource('majors', MajorController::class)->only(['index', 'show']);
+            Route::apiResource('classes', ClassRoomController::class)->only(['index', 'show'])->parameters(['classes' => 'classRoom']);
+            Route::apiResource('guardians', GuardianController::class)->only(['index', 'show']);
+            Route::apiResource('students', StudentController::class)->only(['index', 'show'])->where(['student' => '[0-9]+']);
+        });
+
+        // School identity - Kepsek and Administrasi
+        Route::middleware('role:Kepala Sekolah|Administrasi')->group(function () {
+            Route::get('/settings', [SettingsController::class, 'index']);
+            Route::post('/settings', [SettingsController::class, 'update']);
+        });
+
+        // Finance - View access for Kepsek and Bendahara
         Route::middleware('role:Kepala Sekolah|Bendahara')->group(function () {
             // Dashboard metrics
             Route::get('/dashboard/metrics-kepsek', [DashboardController::class, 'metricsKepsek']);
@@ -57,12 +72,6 @@ Route::prefix('v1')->group(function () {
             Route::get('/reports/per-jenis', [ReportController::class, 'perJenis']);
             Route::get('/reports/tunggakan', [ReportController::class, 'tunggakan']);
 
-            Route::apiResource('academic-years', AcademicYearController::class)->only(['index', 'show']);
-            Route::apiResource('majors', MajorController::class)->only(['index', 'show']);
-            Route::apiResource('classes', ClassRoomController::class)->only(['index', 'show'])->parameters(['classes' => 'classRoom']);
-            Route::apiResource('guardians', GuardianController::class)->only(['index', 'show']);
-            Route::apiResource('students', StudentController::class)->only(['index', 'show'])->where(['student' => '[0-9]+']);
-
             Route::apiResource('payment-types', PaymentTypeController::class)->only(['index', 'show']);
             Route::apiResource('payment-rates', PaymentRateController::class)->only(['index', 'show']);
 
@@ -73,13 +82,12 @@ Route::prefix('v1')->group(function () {
             Route::get('/payments/student/{student}/card', [PaymentController::class, 'studentCard']);
             Route::get('/payment-cards', [PaymentController::class, 'classCards']);
             Route::get('/cashier-sessions', [CashierSessionController::class, 'index']);
-            // Settings
-            Route::get('/settings', [SettingsController::class, 'index']);
-            Route::post('/settings', [SettingsController::class, 'update']);
         });
 
-        // Master Data - Write access for Bendahara only
-        Route::middleware('role:Bendahara')->group(function () {
+        // Master Data - Write access for Administrasi only
+        Route::middleware('role:Administrasi')->group(function () {
+            Route::get('/dashboard/metrics-administrasi', [DashboardController::class, 'metricsAdministrasi']);
+
             Route::apiResource('academic-years', AcademicYearController::class)->except(['index', 'show']);
             Route::apiResource('majors', MajorController::class)->except(['index', 'show']);
             Route::apiResource('classes', ClassRoomController::class)->except(['index', 'show'])->parameters(['classes' => 'classRoom']);
@@ -89,7 +97,10 @@ Route::prefix('v1')->group(function () {
             Route::post('students/import', [StudentController::class, 'importData']);
             Route::get('students/export', [StudentController::class, 'export']);
             Route::apiResource('students', StudentController::class)->except(['index', 'show']);
+        });
 
+        // Finance - Write access for Bendahara only
+        Route::middleware('role:Bendahara')->group(function () {
             Route::apiResource('payment-types', PaymentTypeController::class)->except(['index', 'show']);
             Route::apiResource('payment-rates', PaymentRateController::class)->except(['index', 'show']);
 

@@ -14,7 +14,7 @@ class ClassRoomUpdateTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected User $bendahara;
+    protected User $administrasi;
 
     protected ClassRoom $classRoom;
 
@@ -22,8 +22,8 @@ class ClassRoomUpdateTest extends TestCase
     {
         parent::setUp();
 
-        $this->bendahara = User::factory()->create();
-        $this->bendahara->assignRole(Role::firstOrCreate(['name' => 'Bendahara']));
+        $this->administrasi = User::factory()->create();
+        $this->administrasi->assignRole(Role::firstOrCreate(['name' => 'Administrasi']));
 
         $academicYear = AcademicYear::create(['name' => '2026/2027', 'is_active' => true]);
         $major = Major::create(['name' => 'Teknik Komputer dan Jaringan', 'code' => 'TKJ']);
@@ -35,9 +35,9 @@ class ClassRoomUpdateTest extends TestCase
         ]);
     }
 
-    public function test_bendahara_can_update_a_class(): void
+    public function test_administrasi_can_update_a_class(): void
     {
-        $this->actingAs($this->bendahara)
+        $this->actingAs($this->administrasi)
             ->putJson("/api/v1/classes/{$this->classRoom->id}", [
                 'name' => 'X TKJ 2',
                 'grade' => 'X',
@@ -57,9 +57,9 @@ class ClassRoomUpdateTest extends TestCase
         ]);
     }
 
-    public function test_bendahara_can_delete_an_empty_class(): void
+    public function test_administrasi_can_delete_an_empty_class(): void
     {
-        $this->actingAs($this->bendahara)
+        $this->actingAs($this->administrasi)
             ->deleteJson("/api/v1/classes/{$this->classRoom->id}")
             ->assertSuccessful();
 

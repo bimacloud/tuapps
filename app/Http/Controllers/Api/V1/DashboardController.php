@@ -3,32 +3,36 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\AcademicYear;
+use App\Models\ClassRoom;
 use App\Models\Invoice;
+use App\Models\Major;
 use App\Models\Payment;
 use App\Models\Student;
-use App\Models\AcademicYear;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
     private function getActiveYearId($request)
     {
         $id = $request->academic_year_id;
-        if (!$id) {
+        if (! $id) {
             $activeYear = AcademicYear::where('is_active', true)->first();
+
             return $activeYear ? $activeYear->id : null;
         }
+
         return $id;
     }
 
     public function metricsKepsek(Request $request)
     {
         $yearId = $this->getActiveYearId($request);
-        
+
         $totalSiswa = Student::where('status', 'AKTIF')->count();
-        
+
         $invoiceQuery = Invoice::query();
         if ($yearId) {
             $invoiceQuery->where('academic_year_id', $yearId);
@@ -44,7 +48,7 @@ class DashboardController extends Controller
         $totalTagihan = (float) $invoiceStats->total_tagihan;
         $totalPembayaran = (float) $invoiceStats->total_pembayaran;
         $totalTunggakan = (float) $invoiceStats->total_tunggakan;
-        
+
         $collectionRate = $totalTagihan > 0 ? round(($totalPembayaran / $totalTagihan) * 100, 2) : 0;
 
         return response()->json([
@@ -54,8 +58,8 @@ class DashboardController extends Controller
                 'total_pembayaran' => $totalPembayaran,
                 'total_tunggakan' => $totalTunggakan,
                 'collection_rate' => $collectionRate,
-                'academic_year_id' => $yearId
-            ]
+                'academic_year_id' => $yearId,
+            ],
         ]);
     }
 
@@ -81,7 +85,7 @@ class DashboardController extends Controller
             $tunggakanQuery->where('academic_year_id', $yearId);
         }
         $totalTunggakan = (float) $tunggakanQuery->sum('remaining_amount');
-        
+
         // Siswa Menunggak count
         $siswaMenunggak = $tunggakanQuery->where('remaining_amount', '>', 0)
             ->distinct('student_id')
@@ -101,38 +105,63 @@ class DashboardController extends Controller
                 'pemasukan_bulan_ini' => $pemasukanBulanIni,
                 'total_tunggakan' => $totalTunggakan,
                 'siswa_menunggak' => $siswaMenunggak,
-                'recent_transactions' => $recentTransactions
-            ]
+                'recent_transactions' => $recentTransactions,
+            ],
+        ]);
+    }
+
+    /**
+     * Data-entry overview for Administrasi: how complete the student and class data is.
+     */
+    public function metricsAdministrasi(Request $request)
+    {
+        $yearId = $this->getActiveYearId($request);
+        $activeYearClasses = ClassRoom::where('academic_year_id', $yearId);
+
+        return response()->json([
+            'data' => [
+                'siswa_aktif' => Student::where('status', 'AKTIF')->count(),
+                'kelas_tahun_aktif' => (clone $activeYearClasses)->count(),
+                'kelas_tanpa_siswa' => (clone $activeYearClasses)
+                    ->whereDoesntHave('students', fn ($query) => $query->where('status', 'AKTIF'))
+                    ->count(),
+                'jumlah_jurusan' => Major::count(),
+                'siswa_terbaru' => Student::with('classRoom:id,name')
+                    ->latest('id')
+                    ->take(5)
+                    ->get(['id', 'name', 'nis', 'class_id', 'status', 'created_at']),
+            ],
         ]);
     }
 
     public function charts(Request $request)
     {
         $yearId = $this->getActiveYearId($request);
-        
+
         // 1. Pemasukan per Bulan (Last 6 Months)
         $sixMonthsAgo = Carbon::now()->subMonths(5)->startOfMonth();
         $monthlyIncome = Payment::select('payment_date', 'total_amount')
             ->where('status', 'SUCCESS')
             ->where('payment_date', '>=', $sixMonthsAgo)
             ->get()
-            ->groupBy(function($item) {
+            ->groupBy(function ($item) {
                 return Carbon::parse($item->payment_date)->format('Y-m');
             })
-            ->map(function($group, $key) {
+            ->map(function ($group, $key) {
                 $parts = explode('-', $key);
+
                 return [
                     'year' => (int) $parts[0],
                     'month' => (int) $parts[1],
-                    'total' => $group->sum('total_amount')
+                    'total' => $group->sum('total_amount'),
                 ];
             })
             ->values()
-            ->sortBy(function($item) {
-                return $item['year'] . str_pad($item['month'], 2, '0', STR_PAD_LEFT);
+            ->sortBy(function ($item) {
+                return $item['year'].str_pad($item['month'], 2, '0', STR_PAD_LEFT);
             })
             ->values();
-            
+
         // 2. Pembayaran per Jenis (Based on Invoice Items paid)
         $paymentByType = DB::table('invoice_items')
             ->join('invoices', 'invoice_items.invoice_id', '=', 'invoices.id')
@@ -142,7 +171,7 @@ class DashboardController extends Controller
             ->select('payment_types.name', DB::raw('SUM(invoice_items.paid_amount) as total'))
             ->groupBy('payment_types.name')
             ->get();
-            
+
         // 3. Status Pembayaran (Lunas, Sebagian, Belum)
         $paymentStatus = DB::table('invoices')
             ->where('academic_year_id', $yearId)
@@ -167,8 +196,8 @@ class DashboardController extends Controller
                 'monthly_income' => $monthlyIncome,
                 'payment_by_type' => $paymentByType,
                 'payment_status' => $paymentStatus,
-                'arrears_by_class' => $arrearsByClass
-            ]
+                'arrears_by_class' => $arrearsByClass,
+            ],
         ]);
     }
 }

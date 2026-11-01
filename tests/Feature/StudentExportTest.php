@@ -12,14 +12,14 @@ class StudentExportTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_bendahara_can_download_the_student_export(): void
+    public function test_administrasi_can_download_the_student_export(): void
     {
         Excel::fake();
 
-        $bendahara = User::factory()->create();
-        $bendahara->assignRole(Role::firstOrCreate(['name' => 'Bendahara']));
+        $administrasi = User::factory()->create();
+        $administrasi->assignRole(Role::firstOrCreate(['name' => 'Administrasi']));
 
-        $this->actingAs($bendahara)
+        $this->actingAs($administrasi)
             ->get('/api/v1/students/export')
             ->assertOk();
 

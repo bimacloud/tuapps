@@ -4,7 +4,7 @@
       title="Kelas"
       description="Rombongan belajar per tahun pelajaran. Siswa dicatat ke kelas, dan tagihan mengikuti kelasnya."
     >
-      <template v-if="isBendahara" #actions>
+      <template v-if="canEditData" #actions>
         <button type="button" class="btn btn-primary" :disabled="loading" @click="openModal()">Tambah kelas</button>
       </template>
     </PageHeader>
@@ -29,9 +29,9 @@
         v-else-if="items.length === 0"
         state="empty"
         title="Belum ada kelas."
-        :message="isBendahara ? 'Tambahkan kelas supaya siswa bisa dicatat dan ditagih per kelas.' : 'Bendahara belum menambahkan kelas.'"
+        :message="canEditData ? 'Tambahkan kelas supaya siswa bisa dicatat dan ditagih per kelas.' : 'Administrasi belum menambahkan kelas.'"
       >
-        <button v-if="isBendahara" type="button" class="btn btn-primary" @click="openModal()">Tambah kelas</button>
+        <button v-if="canEditData" type="button" class="btn btn-primary" @click="openModal()">Tambah kelas</button>
       </DataState>
 
       <div v-else class="overflow-x-auto">
@@ -44,7 +44,7 @@
               <th scope="col">Tahun pelajaran</th>
               <th scope="col">Wali kelas</th>
               <th scope="col">Status</th>
-              <th v-if="isBendahara" scope="col"><span class="sr-only">Aksi</span></th>
+              <th v-if="canEditData" scope="col"><span class="sr-only">Aksi</span></th>
             </tr>
           </thead>
           <tbody>
@@ -55,7 +55,7 @@
               <td class="whitespace-nowrap">{{ item.academic_year?.name || '-' }}</td>
               <td>{{ item.homeroom_teacher || '-' }}</td>
               <td><StatusTag :status="Boolean(item.status)" /></td>
-              <td v-if="isBendahara" class="text-right">
+              <td v-if="canEditData" class="text-right">
                 <div class="flex justify-end gap-1">
                   <button type="button" class="btn btn-ghost btn-sm" @click="openModal(item)">
                     Ubah<span class="sr-only"> {{ item.name }}</span>
@@ -202,7 +202,7 @@ import BaseModal from '@/components/app/BaseModal.vue'
 
 const authStore = useAuthStore()
 const notice = useNotice()
-const isBendahara = computed(() => authStore.hasRole('Bendahara'))
+const canEditData = computed(() => authStore.hasRole('Administrasi'))
 
 const items = ref([])
 const majors = ref([])

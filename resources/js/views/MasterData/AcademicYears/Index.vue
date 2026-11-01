@@ -4,7 +4,7 @@
       title="Tahun Pelajaran"
       description="Hanya satu tahun pelajaran yang aktif. Tahun aktif tampil di kepala halaman dan menjadi acuan beranda serta kartu pembayaran siswa."
     >
-      <template v-if="isBendahara" #actions>
+      <template v-if="canEditData" #actions>
         <button type="button" class="btn btn-primary" @click="openModal()">Tambah tahun pelajaran</button>
       </template>
     </PageHeader>
@@ -32,7 +32,7 @@
           Belum ada tahun pelajaran aktif.
         </h2>
         <p class="mt-1 text-sm text-tinta-2">
-          {{ isBendahara ? 'Pilih "Jadikan aktif" pada tahun yang sedang berjalan.' : 'Bendahara perlu menandai tahun yang sedang berjalan sebagai tahun aktif.' }}
+          {{ canEditData ? 'Pilih "Jadikan aktif" pada tahun yang sedang berjalan.' : 'Administrasi perlu menandai tahun yang sedang berjalan sebagai tahun aktif.' }}
         </p>
       </div>
     </section>
@@ -46,9 +46,9 @@
         v-else-if="items.length === 0"
         state="empty"
         title="Belum ada tahun pelajaran."
-        :message="isBendahara ? 'Tambahkan tahun pelajaran yang sedang berjalan dan tandai sebagai aktif. Kelas baru membutuhkan tahun pelajaran.' : 'Bendahara belum menambahkan tahun pelajaran.'"
+        :message="canEditData ? 'Tambahkan tahun pelajaran yang sedang berjalan dan tandai sebagai aktif. Kelas baru membutuhkan tahun pelajaran.' : 'Administrasi belum menambahkan tahun pelajaran.'"
       >
-        <button v-if="isBendahara" type="button" class="btn btn-primary" @click="openModal()">Tambah tahun pelajaran</button>
+        <button v-if="canEditData" type="button" class="btn btn-primary" @click="openModal()">Tambah tahun pelajaran</button>
       </DataState>
 
       <div v-else class="overflow-x-auto">
@@ -59,7 +59,7 @@
               <th scope="col">Mulai</th>
               <th scope="col">Selesai</th>
               <th scope="col">Status</th>
-              <th v-if="isBendahara" scope="col"><span class="sr-only">Aksi</span></th>
+              <th v-if="canEditData" scope="col"><span class="sr-only">Aksi</span></th>
             </tr>
           </thead>
           <tbody>
@@ -70,7 +70,7 @@
               <td>
                 <StatusTag :status="Boolean(item.is_active)" />
               </td>
-              <td v-if="isBendahara" class="text-right">
+              <td v-if="canEditData" class="text-right">
                 <div class="flex justify-end gap-1">
                   <button
                     v-if="!item.is_active"
@@ -199,7 +199,7 @@ import BaseModal from '@/components/app/BaseModal.vue'
 const authStore = useAuthStore()
 const schoolStore = useSchoolStore()
 const notice = useNotice()
-const isBendahara = computed(() => authStore.hasRole('Bendahara'))
+const canEditData = computed(() => authStore.hasRole('Administrasi'))
 
 const items = ref([])
 const loading = ref(true)

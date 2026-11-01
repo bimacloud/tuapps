@@ -225,13 +225,104 @@
       </div>
     </template>
 
+    <!-- Administrasi: is the student and class data complete -->
+    <template v-else-if="isAdministrasi">
+      <PageHeader title="Beranda" description="Kelengkapan data siswa, kelas, dan jurusan untuk tahun pelajaran aktif.">
+        <template #actions>
+          <router-link to="/master/students" class="btn btn-primary">Buka data siswa</router-link>
+        </template>
+      </PageHeader>
+      <YearReminder class="mb-6" />
+
+      <section v-if="administrasiLoading || administrasiError" class="panel">
+        <DataState v-if="administrasiLoading" state="loading" message="Mengambil ringkasan data sekolah." />
+        <DataState v-else state="error" title="Ringkasan data gagal dimuat." :message="administrasiError">
+          <button type="button" class="btn btn-secondary" @click="fetchAdministrasi">Coba lagi</button>
+        </DataState>
+      </section>
+
+      <template v-else>
+        <section class="panel p-5 sm:p-8" aria-labelledby="data-heading">
+          <h2 id="data-heading" class="sr-only">Ringkasan data sekolah</h2>
+          <dl class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <dt class="text-sm font-semibold text-tinta-2">Siswa aktif</dt>
+              <dd class="mt-1 font-display text-[2.25rem] font-bold leading-none tabular-nums">
+                {{ angkaOrDash(metricsAdministrasi?.siswa_aktif) }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-sm font-semibold text-tinta-2">Kelas tahun aktif</dt>
+              <dd class="mt-1 font-display text-[2.25rem] font-bold leading-none tabular-nums">
+                {{ angkaOrDash(metricsAdministrasi?.kelas_tahun_aktif) }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-sm font-semibold text-tinta-2">Kelas tanpa siswa aktif</dt>
+              <dd
+                class="mt-1 font-display text-[2.25rem] font-bold leading-none tabular-nums"
+                :class="metricsAdministrasi?.kelas_tanpa_siswa ? 'text-belum' : ''"
+              >
+                {{ angkaOrDash(metricsAdministrasi?.kelas_tanpa_siswa) }}
+              </dd>
+              <dd v-if="metricsAdministrasi?.kelas_tanpa_siswa" class="mt-1 text-sm text-tinta-2">
+                Isi siswanya agar kelas ini bisa ditagih.
+              </dd>
+            </div>
+            <div>
+              <dt class="text-sm font-semibold text-tinta-2">Jurusan</dt>
+              <dd class="mt-1 font-display text-[2.25rem] font-bold leading-none tabular-nums">
+                {{ angkaOrDash(metricsAdministrasi?.jumlah_jurusan) }}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel mt-6 overflow-hidden" aria-labelledby="new-students-heading">
+          <div class="border-b border-garis px-5 py-4">
+            <h2 id="new-students-heading" class="text-xl font-bold">Lima siswa terakhir ditambahkan</h2>
+          </div>
+          <DataState
+            v-if="newestStudents.length === 0"
+            state="empty"
+            compact
+            title="Belum ada data siswa."
+            message="Tambahkan siswa satu per satu, atau impor sekaligus dari file Excel."
+          >
+            <router-link to="/master/students" class="btn btn-secondary">Buka data siswa</router-link>
+          </DataState>
+          <div v-else class="overflow-x-auto">
+            <table class="table-data">
+              <thead>
+                <tr>
+                  <th scope="col">Siswa</th>
+                  <th scope="col">Kelas</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="student in newestStudents" :key="student.id">
+                  <td>
+                    <span class="font-semibold">{{ student.name }}</span>
+                    <span class="block text-sm text-tinta-2 tabular-nums">NIS {{ student.nis || '-' }}</span>
+                  </td>
+                  <td>{{ student.class_room?.name || 'Kelas belum diatur' }}</td>
+                  <td><StatusTag :status="student.status" /></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </template>
+    </template>
+
     <template v-else>
       <PageHeader title="Beranda" />
       <section class="panel">
         <DataState
           state="empty"
           title="Ringkasan belum tersedia untuk akun ini."
-          message="Beranda menampilkan ringkasan untuk peran Kepala Sekolah dan Bendahara. Hubungi admin sekolah bila peran Anda belum diatur."
+          message="Beranda menampilkan ringkasan untuk peran Kepala Sekolah, Bendahara, dan Administrasi. Hubungi admin sekolah bila peran Anda belum diatur."
         />
       </section>
     </template>
@@ -250,10 +341,12 @@ import AdminLayout from '@/components/layout/AdminLayout.vue'
 import PageHeader from '@/components/app/PageHeader.vue'
 import YearReminder from '@/components/app/YearReminder.vue'
 import DataState from '@/components/app/DataState.vue'
+import StatusTag from '@/components/app/StatusTag.vue'
 
 const authStore = useAuthStore()
 const isKepsek = computed(() => authStore.hasRole('Kepala Sekolah'))
 const isBendahara = computed(() => authStore.hasRole('Bendahara'))
+const isAdministrasi = computed(() => authStore.hasRole('Administrasi'))
 
 /** Palette from DESIGN.md, used where ApexCharts needs literal colors. */
 const color = {
@@ -304,6 +397,25 @@ const fetchBendahara = async () => {
     bendaharaError.value = errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
   } finally {
     bendaharaLoading.value = false
+  }
+}
+
+/* Administrasi */
+const metricsAdministrasi = ref(null)
+const administrasiLoading = ref(true)
+const administrasiError = ref('')
+const newestStudents = computed(() => metricsAdministrasi.value?.siswa_terbaru ?? [])
+
+const fetchAdministrasi = async () => {
+  administrasiLoading.value = true
+  administrasiError.value = ''
+  try {
+    const res = await axios.get('/api/v1/dashboard/metrics-administrasi')
+    metricsAdministrasi.value = res.data?.data ?? null
+  } catch (error) {
+    administrasiError.value = errorMessage(error, 'Periksa koneksi ke server, lalu coba lagi.')
+  } finally {
+    administrasiLoading.value = false
   }
 }
 
@@ -479,6 +591,8 @@ onMounted(() => {
     fetchPendingApprovals()
   } else if (isBendahara.value) {
     fetchBendahara()
+  } else if (isAdministrasi.value) {
+    fetchAdministrasi()
   }
 })
 </script>
