@@ -1,7 +1,7 @@
 <template>
   <admin-layout>
     <div class="no-print">
-      <PageHeader title="Laporan" description="Pembayaran harian, tunggakan siswa, dan rekap tagihan. Pilih laporan, atur filternya, lalu cetak bila perlu." />
+      <PageHeader title="Laporan" description="Pembayaran harian, pemasukan per periode, rekap kelas per bulan, tunggakan, dan rekap tagihan. Pilih laporan, atur filternya, lalu cetak atau unduh Excel." />
 
       <nav aria-label="Jenis laporan" class="mb-6 border-b border-garis">
         <ul class="flex flex-wrap gap-x-1">
@@ -34,6 +34,8 @@ const router = useRouter()
 
 const tabs = [
   { to: '/reports/harian', label: 'Harian' },
+  { to: '/reports/pemasukan', label: 'Pemasukan' },
+  { to: '/reports/rekap-kelas', label: 'Rekap Kelas' },
   { to: '/reports/tunggakan', label: 'Tunggakan' },
   { to: '/reports/aggregated', label: 'Rekapitulasi' },
 ]
