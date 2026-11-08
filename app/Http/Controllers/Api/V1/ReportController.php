@@ -2,13 +2,22 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exports\ClassRecapExport;
+use App\Exports\IncomeRecapExport;
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Payment;
+use App\Models\AcademicYear;
+use App\Models\ClassRoom;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
-use App\Models\Student;
+use App\Models\Payment;
+use App\Services\ClassRecapService;
+use App\Services\IncomeRecapService;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
@@ -23,13 +32,13 @@ class ReportController extends Controller
         $cashierId = $request->input('cashier_id');
 
         $query = Payment::with([
-            'student:id,name,nis,class_id', 
+            'student:id,name,nis,class_id',
             'student.classRoom:id,name',
             'paymentMethod:id,name',
-            'cashier:id,name'
+            'cashier:id,name',
         ])
-        ->whereDate('payment_date', $date)
-        ->where('status', 'SUCCESS');
+            ->whereDate('payment_date', $date)
+            ->where('status', 'SUCCESS');
 
         if ($methodId) {
             $query->where('payment_method_id', $methodId);
@@ -40,7 +49,7 @@ class ReportController extends Controller
         }
 
         if ($request->boolean('export')) {
-            return $this->exportToCsv($query, 'laporan-harian-' . $date . '.csv', [
+            return $this->exportToCsv($query, 'laporan-harian-'.$date.'.csv', [
                 'No Transaksi' => 'transaction_number',
                 'Tanggal' => 'payment_date',
                 'Siswa' => 'student.name',
@@ -48,7 +57,7 @@ class ReportController extends Controller
                 'Kelas' => 'student.classRoom.name',
                 'Metode' => 'paymentMethod.name',
                 'Nominal' => 'total_amount',
-                'Kasir' => 'cashier.name'
+                'Kasir' => 'cashier.name',
             ]);
         }
 
@@ -59,8 +68,8 @@ class ReportController extends Controller
             'meta' => [
                 'current_page' => $payments->currentPage(),
                 'last_page' => $payments->lastPage(),
-                'total' => $payments->total()
-            ]
+                'total' => $payments->total(),
+            ],
         ]);
     }
 
@@ -84,10 +93,10 @@ class ReportController extends Controller
 
         // Return aggregated daily data within the month
         $dailyData = $query->select(
-                DB::raw('DATE(payment_date) as date'),
-                DB::raw('SUM(total_amount) as total_income'),
-                DB::raw('COUNT(id) as total_transactions')
-            )
+            DB::raw('DATE(payment_date) as date'),
+            DB::raw('SUM(total_amount) as total_income'),
+            DB::raw('COUNT(id) as total_transactions')
+        )
             ->groupBy('date')
             ->orderBy('date', 'asc')
             ->get();
@@ -96,8 +105,8 @@ class ReportController extends Controller
             'data' => $dailyData,
             'summary' => [
                 'total_income' => $dailyData->sum('total_income'),
-                'total_transactions' => $dailyData->sum('total_transactions')
-            ]
+                'total_transactions' => $dailyData->sum('total_transactions'),
+            ],
         ]);
     }
 
@@ -111,7 +120,7 @@ class ReportController extends Controller
         // Menggunakan subquery/aggregation di Database agar ringan
         $data = DB::table('classes')
             ->leftJoin('students', 'classes.id', '=', 'students.class_id')
-            ->leftJoin('invoices', function($join) use ($academicYearId) {
+            ->leftJoin('invoices', function ($join) use ($academicYearId) {
                 $join->on('students.id', '=', 'invoices.student_id');
                 if ($academicYearId) {
                     $join->where('invoices.academic_year_id', '=', $academicYearId);
@@ -132,6 +141,7 @@ class ReportController extends Controller
         // Calculate persentase lunas
         $data = $data->map(function ($item) {
             $item->collection_rate = $item->total_tagihan > 0 ? round(($item->total_pembayaran / $item->total_tagihan) * 100, 2) : 0;
+
             return $item;
         });
 
@@ -153,7 +163,7 @@ class ReportController extends Controller
         $data = DB::table('majors')
             ->leftJoin('classes', 'majors.id', '=', 'classes.major_id')
             ->leftJoin('students', 'classes.id', '=', 'students.class_id')
-            ->leftJoin('invoices', function($join) use ($academicYearId) {
+            ->leftJoin('invoices', function ($join) use ($academicYearId) {
                 $join->on('students.id', '=', 'invoices.student_id');
                 if ($academicYearId) {
                     $join->where('invoices.academic_year_id', '=', $academicYearId);
@@ -174,6 +184,7 @@ class ReportController extends Controller
 
         $data = $data->map(function ($item) {
             $item->collection_rate = $item->total_tagihan > 0 ? round(($item->total_pembayaran / $item->total_tagihan) * 100, 2) : 0;
+
             return $item;
         });
 
@@ -190,10 +201,10 @@ class ReportController extends Controller
         $data = DB::table('payment_types')
             ->leftJoin('invoice_items', 'payment_types.id', '=', 'invoice_items.payment_type_id')
             ->leftJoin('invoices', 'invoice_items.invoice_id', '=', 'invoices.id')
-            ->where(function($q) use ($academicYearId) {
+            ->where(function ($q) use ($academicYearId) {
                 if ($academicYearId) {
                     $q->where('invoices.academic_year_id', $academicYearId)
-                      ->orWhereNull('invoices.academic_year_id');
+                        ->orWhereNull('invoices.academic_year_id');
                 }
             })
             ->select(
@@ -210,6 +221,7 @@ class ReportController extends Controller
 
         $data = $data->map(function ($item) {
             $item->collection_rate = $item->total_tagihan > 0 ? round(($item->total_pembayaran / $item->total_tagihan) * 100, 2) : 0;
+
             return $item;
         });
 
@@ -244,9 +256,53 @@ class ReportController extends Controller
             'meta' => [
                 'current_page' => $invoices->currentPage(),
                 'last_page' => $invoices->lastPage(),
-                'total' => $invoices->total()
-            ]
+                'total' => $invoices->total(),
+            ],
         ]);
+    }
+
+    /**
+     * Rekap kelas: students x months/slots for one class in one academic year. ?export=1 downloads Excel.
+     */
+    public function rekapKelas(Request $request, ClassRecapService $recaps): JsonResponse|BinaryFileResponse
+    {
+        $validated = $request->validate([
+            'academic_year_id' => 'required|exists:academic_years,id',
+            'class_id' => 'required|exists:classes,id',
+        ]);
+
+        $recap = $recaps->build(AcademicYear::findOrFail($validated['academic_year_id']), ClassRoom::findOrFail($validated['class_id']));
+
+        if ($request->boolean('export')) {
+            $fileName = 'rekap-kelas-'.str($recap['class']['name'])->slug().'-'.str($recap['academic_year']['name'])->slug().'.xlsx';
+
+            return Excel::download(new ClassRecapExport($recap), $fileName);
+        }
+
+        return response()->json(['data' => $recap]);
+    }
+
+    /**
+     * Rekap pemasukan for any date range (at most one year). ?export=1 downloads Excel.
+     */
+    public function pemasukan(Request $request, IncomeRecapService $recaps): JsonResponse|BinaryFileResponse
+    {
+        $validated = $request->validate([
+            'date_from' => 'required|date_format:Y-m-d',
+            'date_to' => 'required|date_format:Y-m-d|after_or_equal:date_from',
+        ]);
+
+        if (Carbon::parse($validated['date_from'])->diffInDays(Carbon::parse($validated['date_to'])) > 366) {
+            throw ValidationException::withMessages(['date_to' => 'Rentang tanggal paling panjang satu tahun.']);
+        }
+
+        $recap = $recaps->build($validated['date_from'], $validated['date_to']);
+
+        if ($request->boolean('export')) {
+            return Excel::download(new IncomeRecapExport($recap), "rekap-pemasukan-{$validated['date_from']}-{$validated['date_to']}.xlsx");
+        }
+
+        return response()->json(['data' => $recap]);
     }
 
     /**
@@ -257,7 +313,7 @@ class ReportController extends Controller
     {
         $response = new StreamedResponse(function () use ($query, $columns) {
             $handle = fopen('php://output', 'w');
-            
+
             // Write headers
             fputcsv($handle, array_keys($columns));
 
@@ -280,7 +336,7 @@ class ReportController extends Controller
         });
 
         $response->headers->set('Content-Type', 'text/csv');
-        $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
+        $response->headers->set('Content-Disposition', 'attachment; filename="'.$filename.'"');
 
         return $response;
     }

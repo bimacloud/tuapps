@@ -12,6 +12,7 @@ class Invoice extends Model
     protected $fillable = [
         'invoice_number',
         'student_id',
+        'class_id',
         'academic_year_id',
         'total_amount',
         'paid_amount',
@@ -27,6 +28,14 @@ class Invoice extends Model
     public function student()
     {
         return $this->belongsTo(Student::class);
+    }
+
+    /**
+     * Class the student was in when the invoice was made.
+     */
+    public function classRoom()
+    {
+        return $this->belongsTo(ClassRoom::class, 'class_id');
     }
 
     public function academicYear()

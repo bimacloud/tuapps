@@ -84,6 +84,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/reports/per-jurusan', [ReportController::class, 'perJurusan']);
             Route::get('/reports/per-jenis', [ReportController::class, 'perJenis']);
             Route::get('/reports/tunggakan', [ReportController::class, 'tunggakan']);
+            Route::get('/reports/rekap-kelas', [ReportController::class, 'rekapKelas']);
+            Route::get('/reports/pemasukan', [ReportController::class, 'pemasukan']);
 
             Route::apiResource('payment-types', PaymentTypeController::class)->only(['index', 'show']);
             Route::apiResource('payment-rates', PaymentRateController::class)->only(['index', 'show']);

@@ -114,6 +114,18 @@ const router = createRouter({
           meta: { title: 'Laporan Harian' },
         },
         {
+          path: 'pemasukan',
+          name: 'Rekap Pemasukan',
+          component: () => import('../views/Reports/Income.vue'),
+          meta: { title: 'Rekap Pemasukan' },
+        },
+        {
+          path: 'rekap-kelas',
+          name: 'Rekap Kelas',
+          component: () => import('../views/Reports/ClassRecap.vue'),
+          meta: { title: 'Rekap Kelas' },
+        },
+        {
           path: 'tunggakan',
           name: 'Laporan Tunggakan',
           component: () => import('../views/Reports/Arrears.vue'),
