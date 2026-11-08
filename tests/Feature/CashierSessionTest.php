@@ -64,9 +64,22 @@ class CashierSessionTest extends TestCase
         $this->transfer = PaymentMethod::create(['code' => 'TRANSFER', 'name' => 'Transfer Bank', 'is_active' => true]);
     }
 
+    public function test_session_opens_with_an_empty_drawer_without_counting(): void
+    {
+        $this->actingAs($this->bendahara)
+            ->postJson('/api/v1/cashier-sessions/open', ['starting_balance' => 500000])
+            ->assertCreated();
+
+        $this->assertDatabaseHas('cashier_sessions', [
+            'user_id' => $this->bendahara->id,
+            'status' => 'OPEN',
+            'starting_balance' => 0,
+        ]);
+    }
+
     public function test_summary_counts_only_cash_payments_made_in_the_session(): void
     {
-        $this->actingAs($this->bendahara)->postJson('/api/v1/cashier-sessions/open', ['starting_balance' => 100000]);
+        $this->actingAs($this->bendahara)->postJson('/api/v1/cashier-sessions/open')->assertCreated();
         $this->pay($this->cash, 200000);
         $this->pay($this->transfer, 300000);
 
@@ -74,24 +87,24 @@ class CashierSessionTest extends TestCase
 
         $response->assertOk();
         $this->assertSame(200000.0, (float) $response->json('data.total_cash_payments'));
-        $this->assertSame(300000.0, (float) $response->json('data.expected_balance'));
+        $this->assertSame(200000.0, (float) $response->json('data.expected_balance'));
     }
 
     public function test_close_compares_actual_balance_with_cash_received(): void
     {
-        $this->actingAs($this->bendahara)->postJson('/api/v1/cashier-sessions/open', ['starting_balance' => 100000]);
+        $this->actingAs($this->bendahara)->postJson('/api/v1/cashier-sessions/open')->assertCreated();
         $this->pay($this->cash, 200000);
         $this->pay($this->transfer, 300000);
 
         $response = $this->actingAs($this->bendahara)->postJson('/api/v1/cashier-sessions/close', [
-            'actual_balance' => 300000,
+            'actual_balance' => 200000,
         ]);
 
         $response->assertOk();
         $this->assertDatabaseHas('cashier_sessions', [
             'user_id' => $this->bendahara->id,
             'status' => 'CLOSED',
-            'expected_balance' => 300000,
+            'expected_balance' => 200000,
             'difference' => 0,
         ]);
     }

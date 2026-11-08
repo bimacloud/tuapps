@@ -18,8 +18,7 @@
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <StatusTag status="OPEN" />
           <p class="text-tinta-2">
-            Dibuka pukul {{ formatTime(activeSession.start_time) }}, modal awal
-            <span class="font-semibold text-tinta tabular-nums">{{ formatRupiah(activeSession.starting_balance) }}</span>
+            Dibuka pukul {{ formatTime(activeSession.start_time) }}
           </p>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -36,7 +35,9 @@
         </div>
         <div class="flex flex-wrap gap-2">
           <router-link to="/kasir/riwayat" class="btn btn-ghost">Riwayat kas</router-link>
-          <button type="button" class="btn btn-primary" @click="openSessionModal">Buka kas</button>
+          <button type="button" class="btn btn-primary" :disabled="isOpeningSession" @click="openSession">
+            {{ isOpeningSession ? 'Membuka kas...' : 'Buka kas' }}
+          </button>
         </div>
       </template>
     </section>
@@ -536,46 +537,6 @@
       </template>
     </BaseModal>
 
-    <!-- Buka kas -->
-    <BaseModal
-      :open="showOpenSessionModal"
-      title="Buka kas"
-      description="Hitung uang modal di laci, lalu masukkan jumlahnya sebagai saldo awal."
-      size="sm"
-      @close="showOpenSessionModal = false"
-    >
-      <form id="form-buka-kas" class="space-y-4" @submit.prevent="openSession">
-        <p
-          v-if="sessionError"
-          class="rounded-[var(--radius-kontrol)] bg-galat-muda px-3 py-2 text-sm font-semibold text-galat"
-          role="alert"
-        >
-          {{ sessionError }}
-        </p>
-        <div>
-          <label for="saldo-awal" class="field-label">Saldo awal tunai (Rp)</label>
-          <input
-            id="saldo-awal"
-            v-model.number="startingBalance"
-            type="number"
-            min="0"
-            step="1000"
-            inputmode="numeric"
-            required
-            class="field-input text-right text-lg tabular-nums"
-            placeholder="Jumlah uang modal di laci"
-          />
-          <p class="field-hint">Isi 0 bila laci kosong.</p>
-        </div>
-      </form>
-      <template #footer>
-        <button type="button" class="btn btn-secondary" @click="showOpenSessionModal = false">Nanti saja</button>
-        <button type="submit" form="form-buka-kas" class="btn btn-primary" :disabled="isSubmittingSession || !isStartingBalanceValid">
-          {{ isSubmittingSession ? 'Membuka kas...' : 'Buka kas' }}
-        </button>
-      </template>
-    </BaseModal>
-
     <!-- Tutup kas -->
     <BaseModal
       :open="showCloseSessionModal && !!sessionSummary"
@@ -585,7 +546,7 @@
     >
       <form v-if="sessionSummary" id="form-tutup-kas" class="space-y-4" @submit.prevent="closeSession">
         <dl class="divide-y divide-garis rounded-[var(--radius-kontrol)] border border-garis">
-          <div class="flex justify-between gap-4 px-4 py-2.5">
+          <div v-if="Number(sessionSummary.session.starting_balance) > 0" class="flex justify-between gap-4 px-4 py-2.5">
             <dt class="text-tinta-2">Saldo awal</dt>
             <dd class="tabular-nums">{{ formatRupiah(sessionSummary.session.starting_balance) }}</dd>
           </div>
@@ -728,9 +689,8 @@ const printButton = ref<HTMLButtonElement | null>(null)
 const activeSession = ref<any>(null)
 const sessionLoading = ref(true)
 const sessionCheckError = ref('')
-const showOpenSessionModal = ref(false)
 const showCloseSessionModal = ref(false)
-const startingBalance = ref<number | null>(null)
+const isOpeningSession = ref(false)
 const actualBalance = ref<number | null>(null)
 const closeNotes = ref('')
 const sessionSummary = ref<any>(null)
@@ -761,7 +721,6 @@ const checkSession = async () => {
       focusSearch()
     } else {
       activeSession.value = null
-      openSessionModal()
     }
   } catch (err) {
     sessionCheckError.value = errorMessage(err, 'Status kas gagal diperiksa. Periksa koneksi ke server, lalu coba lagi.')
@@ -770,29 +729,18 @@ const checkSession = async () => {
   }
 }
 
-const openSessionModal = () => {
-  sessionError.value = ''
-  showOpenSessionModal.value = true
-}
-
-const isStartingBalanceValid = computed(() => typeof startingBalance.value === 'number' && startingBalance.value >= 0)
-
+/** The drawer is assumed empty when a session opens, so there is nothing to count or fill in. */
 const openSession = async () => {
-  if (!isStartingBalanceValid.value) return
-  isSubmittingSession.value = true
-  sessionError.value = ''
+  isOpeningSession.value = true
   try {
-    const res = await axios.post('/api/v1/cashier-sessions/open', {
-      starting_balance: startingBalance.value,
-    })
+    const res = await axios.post('/api/v1/cashier-sessions/open')
     activeSession.value = res.data.data
-    showOpenSessionModal.value = false
-    startingBalance.value = null
+    notice.success('Kas dibuka. Pembayaran sudah bisa dicatat.')
     focusSearch()
-  } catch (err: any) {
-    sessionError.value = errorMessage(err, 'Kas gagal dibuka. Coba lagi.')
+  } catch (err) {
+    notice.error(errorMessage(err, 'Kas gagal dibuka. Coba lagi.'))
   } finally {
-    isSubmittingSession.value = false
+    isOpeningSession.value = false
   }
 }
 

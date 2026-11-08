@@ -58,7 +58,6 @@
                 <th scope="col">Dibuka</th>
                 <th scope="col">Ditutup</th>
                 <th scope="col">Petugas</th>
-                <th scope="col" class="num">Saldo awal</th>
                 <th scope="col" class="num">Seharusnya di laci</th>
                 <th scope="col" class="num">Uang fisik</th>
                 <th scope="col">Selisih</th>
@@ -73,7 +72,6 @@
                   <StatusTag v-else status="OPEN" label="Masih dibuka" />
                 </td>
                 <td class="whitespace-nowrap">{{ session.user?.name || '-' }}</td>
-                <td class="num">{{ formatRupiah(session.starting_balance) }}</td>
                 <td class="num">{{ formatRupiah(expectedOf(session)) }}</td>
                 <td class="num">{{ session.status === 'CLOSED' ? formatRupiah(session.actual_balance) : '-' }}</td>
                 <td>

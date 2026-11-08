@@ -56,14 +56,11 @@ class CashierSessionController extends Controller
     }
 
     /**
-     * Open a new cashier session.
+     * Open a new cashier session. The drawer is assumed empty when the session opens,
+     * so the starting balance is always 0 and "expected in drawer" equals cash received.
      */
     public function open(Request $request)
     {
-        $request->validate([
-            'starting_balance' => 'required|numeric|min:0',
-        ]);
-
         // Check if already open
         $activeSession = CashierSession::where('user_id', auth()->id())
             ->where('status', 'OPEN')
@@ -78,14 +75,14 @@ class CashierSessionController extends Controller
         $session = CashierSession::create([
             'user_id' => auth()->id(),
             'start_time' => Carbon::now(),
-            'starting_balance' => $request->starting_balance,
+            'starting_balance' => 0,
             'status' => 'OPEN',
         ]);
 
         AuditService::log(
             'CASHIER_OPEN',
             'CASHIER_SESSION',
-            'Membuka sesi kasir dengan saldo awal '.number_format($request->starting_balance, 0, ',', '.'),
+            'Membuka sesi kasir',
             $session,
             null,
             $session->toArray()
