@@ -432,114 +432,17 @@
       </template>
     </BaseModal>
 
-    <!-- Import from Excel: upload, preview, then confirm -->
-    <BaseModal
+    <ImportExcelModal
       :open="showImportModal"
-      size="xl"
-      title="Impor data siswa dari Excel"
-      :description="importPreviewData ? 'Langkah 2 dari 2: periksa hasil pembacaan file.' : 'Langkah 1 dari 2: pilih file, sistem akan memeriksanya dulu.'"
-      @close="closeImportModal"
-    >
-      <form v-if="!importPreviewData" id="import-upload-form" class="space-y-4" @submit.prevent="uploadImport">
-        <div class="rounded-[var(--radius-kontrol)] bg-krem px-4 py-3 text-sm">
-          <p class="font-semibold">Ketentuan file</p>
-          <ul class="mt-1 list-disc space-y-1 pl-5 text-tinta-2">
-            <li>Format .xlsx, .xls, atau .csv, paling besar 5 MB. Baris pertama berisi nama kolom.</li>
-            <li>Kolom wajib: <code class="font-semibold text-tinta">nama_lengkap</code> dan <code class="font-semibold text-tinta">kelas</code>.</li>
-            <li>
-              Kolom lain yang dibaca: nis, nisn, jenis_kelamin, tempat_lahir, tanggal_lahir, alamat, telepon, tahun_masuk,
-              jurusan, status, nama_wali, telepon_wali, hubungan_wali.
-            </li>
-            <li>Isi kolom kelas dan jurusan harus sama persis dengan nama di menu Kelas dan Jurusan.</li>
-          </ul>
-        </div>
-        <div>
-          <label for="import-file" class="field-label">File Excel siswa</label>
-          <input
-            id="import-file"
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            required
-            class="field-input py-1.5 file:mr-3 file:rounded-[var(--radius-kontrol)] file:border-0 file:bg-bata-muda file:px-3 file:py-2 file:font-semibold file:text-bata-tua"
-            :aria-invalid="importError ? 'true' : 'false'"
-            :aria-describedby="importError ? 'import-file-error' : undefined"
-            @change="onImportFileChange"
-          />
-          <p v-if="importError" id="import-file-error" class="field-error" role="alert">{{ importError }}</p>
-        </div>
-      </form>
-
-      <div v-else class="space-y-4">
-        <div>
-          <p class="font-semibold">
-            {{ importPreviewData.length }} baris terbaca: {{ importValidCount }} siap diimpor,
-            {{ importInvalidCount }} dilewati.
-          </p>
-          <p v-if="importHasErrors" class="mt-1 text-sm text-tinta-2">
-            Baris yang dilewati tidak ikut disimpan. Perbaiki di file Excel lalu impor ulang baris tersebut, atau
-            tambahkan manual.
-          </p>
-          <p v-if="importValidCount === 0" class="field-error" role="alert">
-            Tidak ada baris yang bisa diimpor. Perbaiki file sesuai keterangan di tabel, lalu pilih file lagi.
-          </p>
-        </div>
-
-        <div class="overflow-x-auto rounded-[var(--radius-kontrol)] border border-garis">
-          <table class="table-data">
-            <thead>
-              <tr>
-                <th scope="col" class="num w-12">No</th>
-                <th scope="col">Hasil</th>
-                <th scope="col">Nama</th>
-                <th scope="col">NIS / NISN</th>
-                <th scope="col">Kelas</th>
-                <th scope="col">Keterangan</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(row, idx) in importPreviewData" :key="idx">
-                <td class="num text-tinta-2">{{ idx + 1 }}</td>
-                <td>
-                  <StatusTag v-if="row.is_valid" status="APPROVED" label="Siap diimpor" />
-                  <StatusTag v-else status="REJECTED" label="Dilewati" />
-                </td>
-                <td>{{ row.name || '-' }}</td>
-                <td class="whitespace-nowrap tabular-nums">{{ row.nis || '-' }} / {{ row.nisn || '-' }}</td>
-                <td class="whitespace-nowrap">{{ row.class_name || '-' }}</td>
-                <td>
-                  <ul v-if="row.errors?.length" class="space-y-0.5 text-sm font-medium text-galat">
-                    <li v-for="err in row.errors" :key="err">{{ err }}</li>
-                  </ul>
-                  <span v-else class="text-sm text-tinta-2">Tidak ada masalah</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <template #footer>
-        <template v-if="!importPreviewData">
-          <button type="button" class="btn btn-secondary" @click="closeImportModal">Batal</button>
-          <button type="submit" form="import-upload-form" class="btn btn-primary" :disabled="!importFile || importing">
-            {{ importing ? 'Memeriksa file...' : 'Periksa file' }}
-          </button>
-        </template>
-        <template v-else>
-          <button type="button" class="btn btn-secondary" :disabled="importing" @click="chooseAnotherImportFile">
-            Pilih file lain
-          </button>
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="importing || importValidCount === 0"
-            @click="confirmImport"
-          >
-            {{ importing ? 'Mengimpor...' : `Impor ${importValidCount} siswa` }}
-          </button>
-        </template>
-      </template>
-    </BaseModal>
+      dataset="students"
+      title="Siswa"
+      :notes="[
+        'Kolom wajib: Nama Lengkap dan Kelas. Nama kelas harus sama persis dengan menu Kelas.',
+        'Siswa dengan NIS atau NISN yang sudah ada akan diperbarui, bukan ditambah lagi.',
+      ]"
+      @close="showImportModal = false"
+      @imported="fetchData"
+    />
   </admin-layout>
 </template>
 
@@ -554,6 +457,7 @@ import PageHeader from '@/components/app/PageHeader.vue'
 import DataState from '@/components/app/DataState.vue'
 import StatusTag from '@/components/app/StatusTag.vue'
 import BaseModal from '@/components/app/BaseModal.vue'
+import ImportExcelModal from '@/components/app/ImportExcelModal.vue'
 
 const authStore = useAuthStore()
 const notice = useNotice()
@@ -808,73 +712,8 @@ const exportData = async () => {
 
 // Import
 const showImportModal = ref(false)
-const importFile = ref(null)
-const importPreviewData = ref(null)
-const importHasErrors = ref(false)
-const importing = ref(false)
-const importError = ref('')
-
-const importValidCount = computed(() => (importPreviewData.value || []).filter((row) => row.is_valid).length)
-const importInvalidCount = computed(() => (importPreviewData.value || []).length - importValidCount.value)
-
 const openImportModal = () => {
-  importFile.value = null
-  importPreviewData.value = null
-  importHasErrors.value = false
-  importError.value = ''
   showImportModal.value = true
-}
-
-const closeImportModal = () => {
-  showImportModal.value = false
-}
-
-const chooseAnotherImportFile = () => {
-  importFile.value = null
-  importPreviewData.value = null
-  importHasErrors.value = false
-  importError.value = ''
-}
-
-const onImportFileChange = (e) => {
-  importFile.value = e.target.files[0]
-  importError.value = ''
-}
-
-const uploadImport = async () => {
-  if (!importFile.value) return
-  importing.value = true
-  importError.value = ''
-
-  const fd = new FormData()
-  fd.append('file', importFile.value)
-
-  try {
-    const res = await axios.post('/api/v1/students/import-preview', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-    importPreviewData.value = res.data.data
-    importHasErrors.value = res.data.has_errors
-  } catch (error) {
-    importError.value = errorMessage(error, 'File gagal dibaca. Pastikan formatnya .xlsx, .xls, atau .csv.')
-  } finally {
-    importing.value = false
-  }
-}
-
-const confirmImport = async () => {
-  importing.value = true
-  const importedCount = importValidCount.value
-  try {
-    await axios.post('/api/v1/students/import', { data: importPreviewData.value })
-    closeImportModal()
-    notice.success(`${importedCount} siswa berhasil diimpor.`)
-    fetchData()
-  } catch (error) {
-    notice.error(errorMessage(error, 'Data siswa gagal diimpor. Tidak ada baris yang disimpan.'))
-  } finally {
-    importing.value = false
-  }
 }
 
 onMounted(() => {

@@ -5,6 +5,10 @@
       description="Daftar pos pembayaran sekolah. Tarif dan tagihan selalu mengacu ke jenis pembayaran di sini."
     >
       <template v-if="isBendahara" #actions>
+        <button type="button" class="btn btn-secondary" :disabled="exporting" @click="exportData">
+          {{ exporting ? 'Menyiapkan file...' : 'Unduh data' }}
+        </button>
+        <button type="button" class="btn btn-secondary" @click="showImportModal = true">Impor dari Excel</button>
         <button type="button" class="btn btn-primary" @click="openModal()">Tambah jenis pembayaran</button>
       </template>
     </PageHeader>
@@ -168,6 +172,15 @@
         </button>
       </template>
     </BaseModal>
+
+    <ImportExcelModal
+      :open="showImportModal"
+      dataset="payment-types"
+      title="Jenis Pembayaran"
+      :notes="['Jenis dengan kode yang sudah ada akan diperbarui.']"
+      @close="showImportModal = false"
+      @imported="fetchData"
+    />
   </admin-layout>
 </template>
 
@@ -179,6 +192,8 @@ import { useNotice } from '@/composables/useNotice'
 import { errorMessage } from '@/utils/format'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import PageHeader from '@/components/app/PageHeader.vue'
+import ImportExcelModal from '@/components/app/ImportExcelModal.vue'
+import { downloadFile } from '@/utils/download'
 import DataState from '@/components/app/DataState.vue'
 import StatusTag from '@/components/app/StatusTag.vue'
 import BaseModal from '@/components/app/BaseModal.vue'
@@ -279,6 +294,20 @@ const deleteItem = async (item) => {
     fetchData()
   } catch (error) {
     notice.error(errorMessage(error, 'Jenis pembayaran gagal dihapus.'))
+  }
+}
+
+// Excel export and import in the same format as the template on the Setup Awal page.
+const showImportModal = ref(false)
+const exporting = ref(false)
+const exportData = async () => {
+  exporting.value = true
+  try {
+    await downloadFile('/api/v1/setup/payment-types/export', 'data-payment-types.xlsx')
+  } catch {
+    notice.error('Data jenis pembayaran gagal diunduh. Coba lagi.')
+  } finally {
+    exporting.value = false
   }
 }
 

@@ -2,15 +2,14 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exports\StudentExport;
 use App\Http\Controllers\Controller;
-use App\Models\Student;
 use App\Models\Guardian;
+use App\Models\Student;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
-use App\Exports\StudentExport;
-use App\Services\StudentImportService;
 
 class StudentController extends Controller
 {
@@ -22,8 +21,8 @@ class StudentController extends Controller
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('nis', 'like', "%{$search}%")
-                  ->orWhere('nisn', 'like', "%{$search}%")
-                  ->orWhere('name', 'like', "%{$search}%");
+                    ->orWhere('nisn', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
             });
         }
 
@@ -65,7 +64,7 @@ class StudentController extends Controller
             'major_id' => 'nullable|exists:majors,id',
             'status' => 'required|in:AKTIF,LULUS,PINDAH,KELUAR',
             'photo' => 'nullable|image|max:2048',
-            
+
             // Guardian fields
             'guardian_name' => 'nullable|string|max:255',
             'guardian_phone' => 'nullable|string|max:50',
@@ -75,7 +74,7 @@ class StudentController extends Controller
         DB::beginTransaction();
         try {
             $guardianId = null;
-            if (!empty($validated['guardian_name'])) {
+            if (! empty($validated['guardian_name'])) {
                 $guardian = Guardian::firstOrCreate(
                     ['name' => $validated['guardian_name'], 'phone' => $validated['guardian_phone'] ?? null],
                     ['relation' => $validated['guardian_relation'] ?? null]
@@ -106,29 +105,32 @@ class StudentController extends Controller
             ]);
 
             DB::commit();
-            
+
             $student->load(['classRoom.major', 'major', 'guardian']);
+
             return response()->json(['data' => $student, 'message' => 'Siswa berhasil ditambahkan'], 201);
         } catch (\Exception $e) {
             DB::rollBack();
             if (isset($photoPath)) {
                 Storage::disk('public')->delete($photoPath);
             }
-            return response()->json(['message' => 'Gagal menyimpan data siswa: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Gagal menyimpan data siswa: '.$e->getMessage()], 500);
         }
     }
 
     public function show(Student $student)
     {
         $student->load(['classRoom.major', 'major', 'guardian']);
+
         return response()->json(['data' => $student]);
     }
 
     public function update(Request $request, Student $student)
     {
         $validated = $request->validate([
-            'nis' => 'nullable|string|max:50|unique:students,nis,' . $student->id,
-            'nisn' => 'nullable|string|max:50|unique:students,nisn,' . $student->id,
+            'nis' => 'nullable|string|max:50|unique:students,nis,'.$student->id,
+            'nisn' => 'nullable|string|max:50|unique:students,nisn,'.$student->id,
             'name' => 'required|string|max:255',
             'gender' => 'nullable|in:L,P',
             'birth_place' => 'nullable|string|max:255',
@@ -140,7 +142,7 @@ class StudentController extends Controller
             'major_id' => 'nullable|exists:majors,id',
             'status' => 'required|in:AKTIF,LULUS,PINDAH,KELUAR',
             'photo' => 'nullable|image|max:2048',
-            
+
             // Guardian fields
             'guardian_name' => 'nullable|string|max:255',
             'guardian_phone' => 'nullable|string|max:50',
@@ -150,7 +152,7 @@ class StudentController extends Controller
         DB::beginTransaction();
         try {
             $guardianId = $student->guardian_id;
-            if (!empty($validated['guardian_name'])) {
+            if (! empty($validated['guardian_name'])) {
                 $guardian = Guardian::firstOrCreate(
                     ['name' => $validated['guardian_name'], 'phone' => $validated['guardian_phone'] ?? null],
                     ['relation' => $validated['guardian_relation'] ?? null]
@@ -184,11 +186,13 @@ class StudentController extends Controller
             ]);
 
             DB::commit();
-            
+
             $student->load(['classRoom.major', 'major', 'guardian']);
+
             return response()->json(['data' => $student, 'message' => 'Siswa berhasil diupdate']);
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json(['message' => 'Gagal mengupdate data siswa'], 500);
         }
     }
@@ -198,49 +202,25 @@ class StudentController extends Controller
         // Add check if student has invoices or payment rates
         // Currently the migration cascade on delete, but we shouldn't allow it if there are transactions.
         // I will check if there are invoices (we don't have Invoice model setup yet, but we can use DB facade)
-        
+
         $hasInvoices = DB::table('invoices')->where('student_id', $student->id)->exists();
         if ($hasInvoices) {
             return response()->json([
-                'message' => 'Siswa tidak dapat dihapus karena sudah memiliki data tagihan/transaksi'
+                'message' => 'Siswa tidak dapat dihapus karena sudah memiliki data tagihan/transaksi',
             ], 422);
         }
 
         if ($student->photo) {
             Storage::disk('public')->delete($student->photo);
         }
-        
+
         $student->delete();
+
         return response()->json(['message' => 'Siswa berhasil dihapus']);
     }
 
     public function export(Request $request)
     {
         return Excel::download(new StudentExport($request), 'students.xlsx');
-    }
-
-    public function previewImport(Request $request, StudentImportService $importService)
-    {
-        $request->validate([
-            'file' => 'required|mimes:xlsx,xls,csv|max:5120'
-        ]);
-
-        $preview = $importService->preview($request->file('file'));
-        return response()->json($preview);
-    }
-
-    public function importData(Request $request, StudentImportService $importService)
-    {
-        $request->validate([
-            'data' => 'required|array',
-            'data.*.is_valid' => 'required|boolean'
-        ]);
-
-        try {
-            $importService->import($request->data);
-            return response()->json(['message' => 'Data siswa berhasil diimpor']);
-        } catch (\Exception $e) {
-            return response()->json(['message' => 'Gagal mengimpor data: ' . $e->getMessage()], 500);
-        }
     }
 }

@@ -5,6 +5,10 @@
       description="Nominal tiap jenis pembayaran per tahun pelajaran. Tarif tanpa kelas berlaku untuk semua kelas."
     >
       <template v-if="isBendahara" #actions>
+        <button type="button" class="btn btn-secondary" :disabled="exporting" @click="exportData">
+          {{ exporting ? 'Menyiapkan file...' : 'Unduh data' }}
+        </button>
+        <button type="button" class="btn btn-secondary" @click="showImportModal = true">Impor dari Excel</button>
         <button type="button" class="btn btn-primary" @click="openModal()">Tambah tarif</button>
       </template>
     </PageHeader>
@@ -193,6 +197,15 @@
         </button>
       </template>
     </BaseModal>
+
+    <ImportExcelModal
+      :open="showImportModal"
+      dataset="payment-rates"
+      title="Tarif Pembayaran"
+      :notes="['Tarif yang sudah ada tidak ditimpa. Ubah nominalnya lewat tombol Ubah di tabel.']"
+      @close="showImportModal = false"
+      @imported="fetchData"
+    />
   </admin-layout>
 </template>
 
@@ -204,6 +217,8 @@ import { useNotice } from '@/composables/useNotice'
 import { errorMessage, formatRupiah } from '@/utils/format'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import PageHeader from '@/components/app/PageHeader.vue'
+import ImportExcelModal from '@/components/app/ImportExcelModal.vue'
+import { downloadFile } from '@/utils/download'
 import DataState from '@/components/app/DataState.vue'
 import StatusTag from '@/components/app/StatusTag.vue'
 import BaseModal from '@/components/app/BaseModal.vue'
@@ -347,6 +362,20 @@ const deleteItem = async (item) => {
     fetchData()
   } catch (error) {
     notice.error(errorMessage(error, 'Tarif gagal dihapus.'))
+  }
+}
+
+// Excel export and import in the same format as the template on the Setup Awal page.
+const showImportModal = ref(false)
+const exporting = ref(false)
+const exportData = async () => {
+  exporting.value = true
+  try {
+    await downloadFile('/api/v1/setup/payment-rates/export', 'data-payment-rates.xlsx')
+  } catch {
+    notice.error('Data tarif pembayaran gagal diunduh. Coba lagi.')
+  } finally {
+    exporting.value = false
   }
 }
 

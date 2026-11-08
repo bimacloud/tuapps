@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\PaymentRateController;
 use App\Http\Controllers\Api\V1\PaymentTypeController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\SettingsController;
+use App\Http\Controllers\Api\V1\SetupDataController;
 use App\Http\Controllers\Api\V1\StudentController;
 use App\Http\Controllers\Api\V1\WebhookController;
 use Illuminate\Http\Request;
@@ -49,6 +50,18 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('classes', ClassRoomController::class)->only(['index', 'show'])->parameters(['classes' => 'classRoom']);
             Route::apiResource('guardians', GuardianController::class)->only(['index', 'show']);
             Route::apiResource('students', StudentController::class)->only(['index', 'show'])->where(['student' => '[0-9]+']);
+
+            // Initial setup checklist
+            Route::get('/setup/status', [SetupDataController::class, 'status']);
+        });
+
+        // Initial setup Excel files. The controller checks the role that owns each dataset
+        // (Administrasi: school data, Bendahara: payment types and rates).
+        Route::middleware('role:Bendahara|Administrasi')->prefix('setup/{dataset}')->group(function () {
+            Route::get('/template', [SetupDataController::class, 'template']);
+            Route::get('/export', [SetupDataController::class, 'export']);
+            Route::post('/preview', [SetupDataController::class, 'preview']);
+            Route::post('/import', [SetupDataController::class, 'import']);
         });
 
         // School identity - Kepsek and Administrasi
@@ -93,8 +106,6 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('classes', ClassRoomController::class)->except(['index', 'show'])->parameters(['classes' => 'classRoom']);
             Route::apiResource('guardians', GuardianController::class)->except(['index', 'show']);
 
-            Route::post('students/import-preview', [StudentController::class, 'previewImport']);
-            Route::post('students/import', [StudentController::class, 'importData']);
             Route::get('students/export', [StudentController::class, 'export']);
             Route::apiResource('students', StudentController::class)->except(['index', 'show']);
         });
