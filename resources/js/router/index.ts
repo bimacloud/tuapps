@@ -140,6 +140,12 @@ const router = createRouter({
       meta: { title: 'Audit Log' },
     },
     {
+      path: '/setup-awal',
+      name: 'Setup Awal',
+      component: () => import('../views/Setup/Index.vue'),
+      meta: { title: 'Setup Awal' },
+    },
+    {
       path: '/settings',
       name: 'Pengaturan Aplikasi',
       component: () => import('../views/Settings/Index.vue'),

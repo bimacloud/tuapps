@@ -5,6 +5,10 @@
       description="Rombongan belajar per tahun pelajaran. Siswa dicatat ke kelas, dan tagihan mengikuti kelasnya."
     >
       <template v-if="canEditData" #actions>
+        <button type="button" class="btn btn-secondary" :disabled="exporting" @click="exportData">
+          {{ exporting ? 'Menyiapkan file...' : 'Unduh data' }}
+        </button>
+        <button type="button" class="btn btn-secondary" @click="showImportModal = true">Impor dari Excel</button>
         <button type="button" class="btn btn-primary" :disabled="loading" @click="openModal()">Tambah kelas</button>
       </template>
     </PageHeader>
@@ -185,6 +189,15 @@
         </button>
       </template>
     </BaseModal>
+
+    <ImportExcelModal
+      :open="showImportModal"
+      dataset="classes"
+      title="Kelas"
+      :notes="['Kode jurusan dan nama tahun pelajaran harus sudah ada di aplikasi.']"
+      @close="showImportModal = false"
+      @imported="fetchData"
+    />
   </admin-layout>
 </template>
 
@@ -196,6 +209,8 @@ import { useNotice } from '@/composables/useNotice'
 import { errorMessage } from '@/utils/format'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import PageHeader from '@/components/app/PageHeader.vue'
+import ImportExcelModal from '@/components/app/ImportExcelModal.vue'
+import { downloadFile } from '@/utils/download'
 import DataState from '@/components/app/DataState.vue'
 import StatusTag from '@/components/app/StatusTag.vue'
 import BaseModal from '@/components/app/BaseModal.vue'
@@ -319,6 +334,20 @@ const deleteItem = async (item) => {
     refreshClasses()
   } catch (error) {
     notice.error(errorMessage(error, 'Kelas gagal dihapus.'))
+  }
+}
+
+// Excel export and import in the same format as the template on the Setup Awal page.
+const showImportModal = ref(false)
+const exporting = ref(false)
+const exportData = async () => {
+  exporting.value = true
+  try {
+    await downloadFile('/api/v1/setup/classes/export', 'data-classes.xlsx')
+  } catch {
+    notice.error('Data kelas gagal diunduh. Coba lagi.')
+  } finally {
+    exporting.value = false
   }
 }
 

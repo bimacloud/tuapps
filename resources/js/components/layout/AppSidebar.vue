@@ -107,7 +107,7 @@ const menuGroups = computed(() => {
     })
   }
 
-  const sistem: NavItem[] = []
+  const sistem: NavItem[] = [{ name: 'Setup Awal', path: '/setup-awal', icon: 'setup' }]
   if (isKepsek) {
     sistem.push({ name: 'Audit Log', path: '/audit-logs', icon: 'audit' })
   }
